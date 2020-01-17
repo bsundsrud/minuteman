@@ -1,5 +1,7 @@
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime};
+use tungstenite::protocol::Message;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Heartbeat {
@@ -17,6 +19,13 @@ impl Heartbeat {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Command {
     pub url: String,
+}
+
+impl Command {
+    pub fn into_message(&self) -> Result<Message> {
+        let s = serde_json::to_string(&self)?;
+        Ok(Message::Text(s))
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
