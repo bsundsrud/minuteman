@@ -4,19 +4,6 @@ use std::time::{Duration, SystemTime};
 use tungstenite::protocol::Message;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Heartbeat {
-    pub timestamp: SystemTime,
-}
-
-impl Heartbeat {
-    pub fn new() -> Heartbeat {
-        Heartbeat {
-            timestamp: SystemTime::now(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct Command {
     pub url: String,
 }
@@ -28,7 +15,7 @@ impl Command {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum WorkerState {
     Idle,
     Busy,
@@ -36,10 +23,18 @@ pub enum WorkerState {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Status {
-    state: WorkerState,
-    elapsed: Option<Duration>,
-    count_2xx: u32,
-    count_3xx: u32,
-    count_4xx: u32,
-    count_5xx: u32,
+    pub state: WorkerState,
+    pub elapsed: Option<Duration>,
+    pub count: u32,
+    pub count_2xx: u32,
+    pub count_3xx: u32,
+    pub count_4xx: u32,
+    pub count_5xx: u32,
+}
+
+impl Status {
+    pub fn into_message(&self) -> Result<Message> {
+        let s = serde_json::to_string(&self)?;
+        Ok(Message::Text(s))
+    }
 }

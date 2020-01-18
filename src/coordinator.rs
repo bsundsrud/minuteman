@@ -84,15 +84,13 @@ async fn handle_incoming_message(log: Logger, msg: Message, stats: Sender<(Socke
     match msg {
         Message::Ping(_) => {
             debug!(log, "Received ping");
-            tx.send(Message::Pong(Vec::new())).await;
         },
         Message::Pong(_) => {
             debug!(log, "Received pong");
         },
         Message::Text(t) => {
-            debug!(log, "Received text");
-            trace!(log, "Msg => {}", &t);
             let m: messages::Status = serde_json::from_str(&t)?;
+            debug!(log, "Received Status => {:?}", m);
             stats.send((addr.clone(), m)).await;
         },
         Message::Close(_) => {
@@ -141,8 +139,7 @@ async fn handle_connection(logger: Logger, state: State, raw_stream: TcpStream, 
         debug!(logger, "Action: {:?}", r);
         match r {
             CoordinatorResult::Heartbeat => {
-                outgoing.send(Message::Ping(Vec::new())).await?;
-                //tx.send(Message::Ping(Vec::new())).await;
+                tx.send(Message::Ping(Vec::new())).await;
             },
             CoordinatorResult::Incoming(m) => {
                 let stats = state.stats.clone();
@@ -161,7 +158,7 @@ async fn handle_connection(logger: Logger, state: State, raw_stream: TcpStream, 
             },
             CoordinatorResult::Broadcast(c) => {
                 let m = c.into_message()?;
-                outgoing.send(m).await?;
+                tx.send(m).await;
             },
             CoordinatorResult::Outgoing(m) => {
                 outgoing.send(m).await?;

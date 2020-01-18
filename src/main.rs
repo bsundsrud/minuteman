@@ -7,6 +7,7 @@ use std::env;
 
 mod coordinator;
 mod messages;
+mod stats;
 mod worker;
 
 fn root_logger() -> (Logger, slog_async::AsyncGuard) {
