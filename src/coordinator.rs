@@ -13,7 +13,11 @@ use std::{
     net::SocketAddr,
     time::Duration,
 };
-use crate::messages;
+use crate::{
+    messages,
+    stats::StatsCollector,
+    webserver,
+};
 
 use serde_json;
 
@@ -169,10 +173,22 @@ async fn handle_connection(logger: Logger, state: State, raw_stream: TcpStream, 
     Ok(())
 }
 
-pub fn run_forever(log: Logger, addr: String) -> Result<()> {
+async fn stats_collector_task(logger: Logger, stats: StatsCollector, rx: Receiver<(SocketAddr, messages::Status)>) {
+    debug!(logger, "Starting stats collector");
+
+    while let Some((sock, status)) = rx.recv().await {
+        debug!(logger, "Received stats for {} => {:?}", &sock, &status);
+        stats.insert(sock, status);
+    }
+}
+
+pub fn run_forever(log: Logger, addr: String, web_addr: String) -> Result<()> {
     let (_s_tx, s_rx) = channel(1);
     let (_b_tx, b_rx) = channel(100);
-    let (stats_tx, _stats_rx) = channel(100);
+    let (stats_tx, stats_rx) = channel(100);
+    let stats = StatsCollector::new();
+    task::spawn(webserver::webserver_task(log.clone(), web_addr, stats.clone()));
+    task::spawn(stats_collector_task(log.new(o!("task" => "stats")), stats.clone(), stats_rx));
     task::block_on(start(
         log,
         addr,

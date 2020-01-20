@@ -8,6 +8,7 @@ use std::env;
 mod coordinator;
 mod messages;
 mod stats;
+mod webserver;
 mod worker;
 
 fn root_logger() -> (Logger, slog_async::AsyncGuard) {
@@ -25,7 +26,8 @@ fn main() -> Result<()> {
         worker::run_forever(log.new(o!("type" => "worker")), addr)
     } else {
         let addr = "0.0.0.0:5556".to_string();
-        coordinator::run_forever(log.new(o!("type" => "coordinator")), addr)
+        let web_addr = "0.0.0.0:5555".to_string();
+        coordinator::run_forever(log.new(o!("type" => "coordinator")), addr, web_addr)
     };
     debug!(log, "Exiting main.");
     match &res {
