@@ -184,10 +184,10 @@ async fn stats_collector_task(logger: Logger, stats: StatsCollector, rx: Receive
 
 pub fn run_forever(log: Logger, addr: String, web_addr: String) -> Result<()> {
     let (_s_tx, s_rx) = channel(1);
-    let (_b_tx, b_rx) = channel(100);
+    let (b_tx, b_rx) = channel(100);
     let (stats_tx, stats_rx) = channel(100);
     let stats = StatsCollector::new();
-    task::spawn(webserver::webserver_task(log.clone(), web_addr, stats.clone()));
+    task::spawn(webserver::webserver_task(log.clone(), web_addr, stats.clone(), b_tx.clone()));
     task::spawn(stats_collector_task(log.new(o!("task" => "stats")), stats.clone(), stats_rx));
     task::block_on(start(
         log,

@@ -6,7 +6,7 @@ use slog::{
     o,
     warn,
 };
-use anyhow::Result;
+use anyhow::{Result, Error};
 use async_std::{
     self,
     task,
@@ -32,6 +32,7 @@ use std::{
         Duration,
     }
 };
+use surf;
 
 use crate::stats::Stats;
 use crate::messages;
@@ -133,12 +134,33 @@ async fn run(logger: Logger, addr: String, state: State) -> Result<()> {
     Ok(())
 }
 
-async fn command_executor(logger: Logger, rx: Receiver<messages::Command>) -> Result<()> {
+async fn command_executor(logger: Logger, stats: Stats, rx: Receiver<messages::Command>) -> Result<()> {
     debug!(logger, "Started executor task");
     while let Some(cmd) = rx.recv().await {
         info!(logger, "Received command {:?}", cmd);
+        match cmd {
+            messages::Command::Start { urls, strategy, max_concurrency } => {
+                stats.start();
+            },
+            messages::Command::Stop => {
+                stats.stop();
+            },
+            messages::Command::Reset => {
+                stats.reset();
+            }
+        }
     }
     Ok(())
+}
+
+async fn worker_task(logger: Logger, url: String, stats: Stats, id: u32) -> Result<u32> {
+    debug!(logger, "Worker {} starting", id);
+
+    let res = surf::get(&url).await.map_err(|e| Error::msg(format!("{}", e)))?;
+    let s = res.status().as_u16();
+    stats.record_status(s);
+    debug!(logger, "Worker {} result: {}", id, s);
+    Ok(id)
 }
 
 async fn stats_executor(logger: Logger, stats: Stats, tx: Sender<messages::Status>) {
@@ -159,8 +181,8 @@ pub fn run_forever(logger: Logger, addr: String) -> Result<()> {
     let (stats_tx, stats_rx) = channel(1);
     let state = State::new(c_tx, stats_rx);
     let stats = Stats::new();
-    task::spawn(stats_executor(logger.new(o!("task" => "stats")), stats, stats_tx));
-    task::spawn(command_executor(logger.new(o!("task" => "executor")), c_rx));
+    task::spawn(stats_executor(logger.new(o!("task" => "stats")), stats.clone(), stats_tx));
+    task::spawn(command_executor(logger.new(o!("task" => "executor")), stats.clone(), c_rx));
     let res = task::block_on(run(logger.new(o!("task" => "receiver")), addr, state));
     res
 }
