@@ -72,7 +72,7 @@ pub async fn heartbeat_task(logger: Logger, sender: Sender<()>, shutdown: Receiv
 pub async fn start(logger: Logger, addr: String, broadcast: Receiver<messages::Command>, shutdown: Receiver<()>, stats: Sender<(SocketAddr, messages::Status)>) -> Result<()> {
     debug!(logger, "Starting coordinator");
     let (hb_tx, hb_rx) = channel(1);
-    task::spawn(heartbeat_task(logger.new(o!("task" => "heartbeat")), hb_tx, shutdown.clone(), Duration::from_secs(1)));
+    task::spawn(heartbeat_task(logger.new(o!("task" => "heartbeat")), hb_tx, shutdown.clone(), Duration::from_secs(5)));
 
     let state = State::new(hb_rx, broadcast, stats);
     let listener = TcpListener::bind(&addr).await?;

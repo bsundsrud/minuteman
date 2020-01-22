@@ -31,8 +31,7 @@ impl Counters {
     }
 
     pub fn inc_count(&self) {
-        let counters = self.clone();
-        counters.count.fetch_add(1, Ordering::AcqRel);
+        self.count.fetch_add(1, Ordering::AcqRel);
     }
 
     pub fn inc_1xx(&self) {

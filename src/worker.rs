@@ -1,3 +1,4 @@
+use futures::task::Poll;
 use slog::{
     Logger,
     info,
@@ -33,6 +34,7 @@ use std::{
     }
 };
 use surf;
+use rand::{self, seq::SliceRandom};
 
 use crate::stats::Stats;
 use crate::messages;
@@ -95,7 +97,6 @@ async fn run(logger: Logger, addr: String, state: State) -> Result<()> {
         .map_err(|e| e.into())
         .inspect(|m| debug!(l, "Receive Message => {:?}", m))
         .map(Action::Incoming);
-        //.try_for_each(|msg| handle_message(logger.new(o!("handling" => "incoming")), msg, tx.clone(), state.commands.clone()));
     let l = logger.new(o!("handling" => "outgoing"));
     let handle_outgoing = rx
         .inspect(|m| debug!(l, "Sending message => {:?}", m))
@@ -136,30 +137,101 @@ async fn run(logger: Logger, addr: String, state: State) -> Result<()> {
 
 async fn command_executor(logger: Logger, stats: Stats, rx: Receiver<messages::Command>) -> Result<()> {
     debug!(logger, "Started executor task");
+    let (shutdown_tx, shutdown_rx) = channel::<bool>(10);
+    let mut handle = None;
     while let Some(cmd) = rx.recv().await {
         info!(logger, "Received command {:?}", cmd);
         match cmd {
             messages::Command::Start { urls, strategy, max_concurrency } => {
+                let drainer = shutdown_rx.clone();
+                while drainer.len() > 0 {
+                    drainer.recv().await;
+                }
                 stats.start();
+                let h = task::spawn(task_scheduler(logger.new(o!("task" => "scheduler")), urls, stats.clone(), strategy, max_concurrency, shutdown_rx.clone()));
+                handle = Some(h);
             },
             messages::Command::Stop => {
+                if shutdown_tx.is_empty() {
+                    debug!(logger, "Sending stop message");
+                    shutdown_tx.send(false).await;
+                }
                 stats.stop();
             },
             messages::Command::Reset => {
+                if shutdown_tx.is_empty() {
+                    debug!(logger, "Sending stop message");
+                    shutdown_tx.send(false).await;
+                }
                 stats.reset();
             }
         }
     }
+    drop(handle);
     Ok(())
 }
 
-async fn worker_task(logger: Logger, url: String, stats: Stats, id: u32) -> Result<u32> {
-    debug!(logger, "Worker {} starting", id);
+struct StrategyChooser {
+    idx: usize,
+}
 
+impl StrategyChooser {
+    fn new() -> StrategyChooser {
+        StrategyChooser {
+            idx: 0,
+        }
+    }
+
+    fn choose<'a, T>(&mut self, strategy: messages::AttackStrategy, options: &'a [T]) -> Option<&'a T> {
+        match strategy {
+            messages::AttackStrategy::Random => {
+                options.choose(&mut rand::thread_rng())
+            },
+            messages::AttackStrategy::InOrder => {
+                if options.is_empty() {
+                    return None;
+                }
+                if self.idx >= options.len() {
+                    self.idx = 0;
+                }
+                options.get(self.idx)
+            }
+        }
+    }
+}
+
+async fn task_scheduler(logger: Logger, urls: Vec<String>, stats: Stats, strategy: messages::AttackStrategy, max_concurrency: u32, shutdown: Receiver<bool>) -> Result<()> {
+    if urls.is_empty() {
+        return Ok(());
+    }
+    debug!(logger, "Task Scheduler starting");
+    let (start_tx, start_rx) = channel::<bool>(max_concurrency as usize);
+    let creator = stream::repeat(true);
+    let mut chooser = StrategyChooser::new();
+    let mut combined = stream::select(creator, shutdown);
+    let mut id: u64 = 0;
+    while let Some(keep_going) = combined.next().await {
+        if keep_going {
+            start_tx.send(true).await;
+            let url = chooser.choose(strategy, &urls).ok_or_else(|| Error::msg("Couldn't choose url".to_string()))?;
+            let t = worker_task(logger.new(o!("task" => "worker")), url.into(), stats.clone(), id, start_rx.clone());
+            id += 1;
+            task::spawn(t);
+        } else {
+            debug!(logger, "Received stop message");
+            break;
+        }
+    }
+    debug!(logger, "Task Scheduler shutting down");
+    Ok(())
+}
+
+async fn worker_task(logger: Logger, url: String, stats: Stats, id: u64, done: Receiver<bool>) -> Result<u64> {
     let res = surf::get(&url).await.map_err(|e| Error::msg(format!("{}", e)))?;
     let s = res.status().as_u16();
     stats.record_status(s);
     debug!(logger, "Worker {} result: {}", id, s);
+    done.recv().await;
     Ok(id)
 }
 
