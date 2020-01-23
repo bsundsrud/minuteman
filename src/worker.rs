@@ -30,6 +30,7 @@ use rand::{self, seq::SliceRandom};
 use tokio::{
     self,
     time,
+    runtime,
     sync::{watch, mpsc, oneshot, Mutex},
 };
 use futures_intrusive::sync::Semaphore;
@@ -251,12 +252,19 @@ async fn stats_executor(logger: Logger, stats: Stats, tx: watch::Sender<messages
     }
 }
 
-pub async fn run_forever(logger: Logger, addr: String) -> Result<()> {
-    let (c_tx, c_rx) = mpsc::channel(100);
-    let stats = Stats::new();
-    let (stats_tx, stats_rx) = watch::channel(stats.into_message());
-    let state = State::new(c_tx, stats_rx);
-    tokio::spawn(stats_executor(logger.new(o!("task" => "stats")), stats.clone(), stats_tx));
-    tokio::spawn(command_executor(logger.new(o!("task" => "executor")), stats.clone(), c_rx));
-    tokio::spawn(run(logger.new(o!("task" => "receiver")), addr, state)).await?
+pub fn run_forever(logger: Logger, addr: String) -> Result<()> {
+    let mut rt = runtime::Builder::new()
+        .threaded_scheduler()
+        .enable_all()
+        .build()?;
+    let res = rt.block_on(async {
+        let (c_tx, c_rx) = mpsc::channel(100);
+        let stats = Stats::new();
+        let (stats_tx, stats_rx) = watch::channel(stats.into_message());
+        let state = State::new(c_tx, stats_rx);
+        tokio::spawn(stats_executor(logger.new(o!("task" => "stats")), stats.clone(), stats_tx));
+        tokio::spawn(command_executor(logger.new(o!("task" => "executor")), stats.clone(), c_rx));
+        tokio::spawn(run(logger.new(o!("task" => "receiver")), addr, state)).await
+    });
+    res?
 }

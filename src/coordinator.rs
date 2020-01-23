@@ -36,6 +36,7 @@ use tokio::{
         TcpListener,
     },
     time,
+    runtime,
     sync::{watch, mpsc, oneshot},
 };
 
@@ -184,21 +185,26 @@ async fn stats_collector_task(logger: Logger, stats: StatsCollector, mut rx: mps
     }
 }
 
-pub async fn run_forever(log: Logger, addr: String, web_addr: String) -> Result<()> {
-    //let mut rt = runtime::Builder::new().threaded_scheduler().build()?;
-    let (_s_tx, s_rx) = oneshot::channel();
-    let (b_tx, b_rx) = watch::channel(messages::Command::Stop);
-    let (stats_tx, stats_rx) = mpsc::channel(100);
-    let stats = StatsCollector::new();
-    tokio::spawn(webserver::webserver_task(log.clone(), web_addr, stats.clone(), b_tx));
-    tokio::spawn(stats_collector_task(log.new(o!("task" => "stats")), stats.clone(), stats_rx));
-    let res = tokio::spawn(start(
-        log.new(o!("task" => "websocket")),
-        addr,
-        b_rx,
-        s_rx,
-        stats_tx,
-    )).await;
+pub fn run_forever(log: Logger, addr: String, web_addr: String) -> Result<()> {
+    let mut rt = runtime::Builder::new()
+        .threaded_scheduler()
+        .enable_all()
+        .build()?;
+    let res = rt.block_on(async {
+        let (_s_tx, s_rx) = oneshot::channel();
+        let (b_tx, b_rx) = watch::channel(messages::Command::Stop);
+        let (stats_tx, stats_rx) = mpsc::channel(100);
+        let stats = StatsCollector::new();
+        tokio::spawn(webserver::webserver_task(log.clone(), web_addr, stats.clone(), b_tx));
+        tokio::spawn(stats_collector_task(log.new(o!("task" => "stats")), stats.clone(), stats_rx));
+        tokio::spawn(start(
+            log.new(o!("task" => "websocket")),
+            addr,
+            b_rx,
+            s_rx,
+            stats_tx,
+        )).await
+    });
     warn!(log, "Exiting");
     res?
 }
