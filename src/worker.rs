@@ -9,6 +9,7 @@ use slog::{
 use anyhow::{Result, Error};
 use async_tungstenite::tokio::connect_async;
 use futures::{
+    future,
     stream,
     pin_mut,
     StreamExt,
@@ -209,9 +210,9 @@ async fn task_scheduler(logger: Logger, urls: Vec<String>, stats: Stats, strateg
     debug!(logger, "Task Scheduler starting");
     let mut chooser = StrategyChooser::new();
     let mut id: u64 = 0;
+    let max_batches: usize = max_concurrency as usize / 4;
+    let semaphore = Arc::new(Semaphore::new(false, max_batches));
     let https = HttpsConnector::new();
-    let client: Client<_, hyper::Body> = Client::builder().build(https);
-    let semaphore = Arc::new(Semaphore::new(false, max_concurrency as usize));
     loop {
         if let Ok(b) = shutdown.lock().await.try_recv() {
             debug!(logger, "Received stop message {}", b);
@@ -222,17 +223,22 @@ async fn task_scheduler(logger: Logger, urls: Vec<String>, stats: Stats, strateg
             .map(|u| u.parse().map_err(Error::from))
             .unwrap_or_else(|| Err(Error::msg("Couldn't choose url".to_string())))?;
 
-        let t = worker_task(logger.new(o!("task" => "worker")), semaphore.clone(), client.clone(), url, stats.clone(), id);
+        let t1 = worker_task(logger.new(o!("task" => "worker")), semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
         id += 1;
+        let t2 = worker_task(logger.new(o!("task" => "worker")), semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
+        let t3 = worker_task(logger.new(o!("task" => "worker")), semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
+        let t4 = worker_task(logger.new(o!("task" => "worker")), semaphore.clone(), https.clone(), url, stats.clone(), id);
+        let combined = future::join4(t1, t2, t3, t4);
         tokio::spawn(async {
-            let _ = t.await;
+            let _ = combined.await;
         });
     }
     debug!(logger, "Task Scheduler shutting down");
     Ok(())
 }
 
-async fn worker_task(logger: Logger, semaphore: Arc<Semaphore>, client: Client<ClientConnector>, url: Uri, stats: Stats, id: u64) -> Result<u64> {
+async fn worker_task(logger: Logger, semaphore: Arc<Semaphore>, connector: ClientConnector, url: Uri, stats: Stats, id: u64) -> Result<u64> {
+    let client: Client<_, hyper::Body> = Client::builder().build(connector);
     let res = client.get(url).await.map_err(|e| Error::msg(format!("{}", e)))?;
     let s = res.status().as_u16();
     stats.record_status(s);
