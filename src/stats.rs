@@ -1,5 +1,4 @@
 use crate::messages;
-use anyhow::Result;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -55,6 +54,7 @@ impl Counters {
     }
 
     pub fn clear(&self) {
+        self.count.store(0, Ordering::SeqCst);
         self.count_1xx.store(0, Ordering::SeqCst);
         self.count_2xx.store(0, Ordering::SeqCst);
         self.count_3xx.store(0, Ordering::SeqCst);
@@ -109,13 +109,9 @@ impl Stats {
         counters.clear();
     }
 
-    pub fn inc_count(&self) {
-        let inner = self.1.clone();
-        inner.inc_count();
-    }
-
     pub fn record_status(&self, status: u16) {
         let counters = self.1.clone();
+        counters.inc_count();
         if status >= 500 {
             counters.inc_5xx();
         } else if status >= 400 {
@@ -127,6 +123,12 @@ impl Stats {
         } else if status >= 100 {
             counters.inc_1xx();
         }
+    }
+
+    pub fn current_state(&self) -> messages::WorkerState {
+        let inner = self.0.clone();
+        let lock = inner.read().unwrap();
+        lock.state.clone()
     }
 
     pub fn into_message(&self) -> messages::Status {
@@ -164,9 +166,9 @@ impl StatsCollector {
         map.insert(socket, stats);
     }
 
-    pub fn serialize_all(&self) -> Result<String> {
+    pub fn all_stats(&self) -> HashMap<SocketAddr, messages::Status> {
         let rc = self.stats.clone();
-        let map: &HashMap<SocketAddr, messages::Status> = &rc.read().unwrap();
-        Ok(serde_json::to_string(map)?)
+        let rc = rc.read().unwrap();
+        rc.clone()
     }
 }

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use tungstenite::protocol::Message;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -43,13 +43,13 @@ impl Command {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerState {
     Idle,
     Busy,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Status {
     pub state: WorkerState,
     pub elapsed: Option<Duration>,

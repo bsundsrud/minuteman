@@ -1,24 +1,14 @@
-use futures::task::Poll;
 use slog::{
     Logger,
     info,
     debug,
-    trace,
+    error,
     o,
     warn,
 };
 use anyhow::{Result, Error};
-use async_std::{
-    self,
-    task,
-    sync::{
-        Sender,
-        Receiver,
-        channel},
-};
-use async_tungstenite::async_std::connect_async;
+use async_tungstenite::tokio::connect_async;
 use futures::{
-    future,
     stream,
     pin_mut,
     StreamExt,
@@ -29,24 +19,34 @@ use tungstenite::protocol::Message;
 use serde_json;
 use std::{
     time::{
-        Instant,
         Duration,
-    }
+    },
+    sync::Arc,
 };
-use surf;
+use hyper::{self, Client, Uri};
+use hyper_rustls::HttpsConnector;
 use rand::{self, seq::SliceRandom};
+
+use tokio::{
+    self,
+    time,
+    sync::{watch, mpsc, oneshot, Mutex},
+};
+use futures_intrusive::sync::Semaphore;
 
 use crate::stats::Stats;
 use crate::messages;
 
-#[derive(Debug, Clone)]
+type ClientConnector = HttpsConnector<hyper::client::HttpConnector>;
+
+#[derive(Debug)]
 struct State {
-    commands: Sender<messages::Command>,
-    stats: Receiver<messages::Status>,
+    commands: mpsc::Sender<messages::Command>,
+    stats: watch::Receiver<messages::Status>,
 }
 
 impl State {
-    fn new(commands: Sender<messages::Command>, stats: Receiver<messages::Status>) -> State {
+    fn new(commands: mpsc::Sender<messages::Command>, stats: watch::Receiver<messages::Status>) -> State {
         State {
             commands,
             stats,
@@ -54,7 +54,7 @@ impl State {
     }
 }
 
-async fn handle_message(logger: Logger, msg: Message, tx: Sender<Message>, cmd: Sender<messages::Command>) -> Result<bool> {
+async fn handle_message(logger: Logger, msg: Message, mut cmd: mpsc::Sender<messages::Command>) -> Result<bool> {
     let mut exit = false;
     match msg {
         Message::Ping(_) => {
@@ -64,10 +64,8 @@ async fn handle_message(logger: Logger, msg: Message, tx: Sender<Message>, cmd: 
             debug!(logger, "Received Pong");
         },
         Message::Text(t) => {
-            debug!(logger, "Received Text");
-            trace!(logger, "msg => {}", t);
             let m: messages::Command = serde_json::from_str(&t)?;
-            cmd.send(m).await;
+            let _ = cmd.send(m).await;
         },
         Message::Close(_) => {
             debug!(logger, "Received Close");
@@ -88,80 +86,83 @@ enum Action {
 async fn run(logger: Logger, addr: String, state: State) -> Result<()> {
     info!(logger, "Connecting to {}", addr);
     let url = url::Url::parse(&addr)?;
-    let (ws_stream, _response) = connect_async(url).await?;
+    debug!(logger, "parsed URL {}", url);
+    let res = connect_async(url).await;
+    match &res {
+        Ok(_) => {},
+        Err(e) => {
+            error!(logger, "connect error: {:?}", e);
+        }
+    }
+    let (ws_stream, _response) = res?;
     debug!(logger, "Successfully connected");
-    let (tx, rx) = channel(100);
+    let (mut tx, rx) = mpsc::channel(100);
     let (mut outgoing, incoming) = ws_stream.split();
-    let l = logger.new(o!("handling" => "incoming"));
-    let handle_incoming = incoming
-        .map_err(|e| e.into())
-        .inspect(|m| debug!(l, "Receive Message => {:?}", m))
-        .map(Action::Incoming);
-    let l = logger.new(o!("handling" => "outgoing"));
-    let handle_outgoing = rx
-        .inspect(|m| debug!(l, "Sending message => {:?}", m))
-        .map(Action::Outgoing);
-    let handle_stats = state
-        .stats
-        .inspect(|m| debug!(logger.new(o!("action" => "stats")), "Sending stats => {:?}", m))
-        .map(Action::Stats);
+    let handle_incoming = incoming.map_err(|e| e.into()).map(Action::Incoming);
+    let handle_outgoing = rx.map(Action::Outgoing);
+    let handle_stats = state.stats.map(Action::Stats);
     let s1 = stream::select(handle_stats, handle_incoming);
     let mut combined = stream::select(s1, handle_outgoing);
-    while let Some(r) = combined.next().await {
-        debug!(logger, "Action: {:?}", r);
-        match r {
-            Action::Stats(s) => {
-                tx.send(s.into_message()?).await;
-            },
-            Action::Incoming(m) => {
-                let exit = match m {
-                    Ok(m) => {
-                        handle_message(logger.new(o!("handling" => "incoming")), m, tx.clone(), state.commands.clone()).await?
-                    },
-                    Err(e) => {
-                        warn!(logger, "Error receiving message: {}", e);
-                        true
+    loop {
+        if let Some(r) = combined.next().await {
+            match r {
+                Action::Stats(s) => {
+                    let _ = tx.send(s.into_message()?).await;
+                },
+                Action::Incoming(m) => {
+                    let exit = match m {
+                        Ok(m) => {
+                            handle_message(logger.new(o!("handling" => "incoming")), m, state.commands.clone()).await?
+                        },
+                        Err(e) => {
+                            warn!(logger, "Error receiving message: {}", e);
+                            true
+                        }
+                    };
+                    if exit {
+                        break;
                     }
-                };
-                if exit {
-                    break;
+                },
+                Action::Outgoing(m) => {
+                    outgoing.send(m).await?;
                 }
-            },
-            Action::Outgoing(m) => {
-                outgoing.send(m).await?;
             }
         }
     }
     Ok(())
 }
 
-async fn command_executor(logger: Logger, stats: Stats, rx: Receiver<messages::Command>) -> Result<()> {
+async fn command_executor(logger: Logger, stats: Stats, mut rx: mpsc::Receiver<messages::Command>) -> Result<()> {
     debug!(logger, "Started executor task");
-    let (shutdown_tx, shutdown_rx) = channel::<bool>(10);
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<bool>();
+    let shutdown_tx = Arc::new(Mutex::new(Some(shutdown_tx)));
+    let shutdown_rx = Arc::new(Mutex::new(shutdown_rx));
     let mut handle = None;
     while let Some(cmd) = rx.recv().await {
+        let shutdown_tx = shutdown_tx.clone();
         info!(logger, "Received command {:?}", cmd);
         match cmd {
             messages::Command::Start { urls, strategy, max_concurrency } => {
-                let drainer = shutdown_rx.clone();
-                while drainer.len() > 0 {
-                    drainer.recv().await;
-                }
                 stats.start();
-                let h = task::spawn(task_scheduler(logger.new(o!("task" => "scheduler")), urls, stats.clone(), strategy, max_concurrency, shutdown_rx.clone()));
+                {
+                    let (tx, rx) = oneshot::channel::<bool>();
+                    *shutdown_tx.clone().lock().await = Some(tx);
+                    *shutdown_rx.clone().lock().await = rx;
+                }
+                let h = tokio::spawn(task_scheduler(logger.new(o!("task" => "scheduler")), urls, stats.clone(), strategy, max_concurrency, shutdown_rx.clone()));
                 handle = Some(h);
             },
             messages::Command::Stop => {
-                if shutdown_tx.is_empty() {
+                if stats.current_state() == messages::WorkerState::Busy {
                     debug!(logger, "Sending stop message");
-                    shutdown_tx.send(false).await;
+                    shutdown_tx.lock().await.take().map(|l| l.send(false));
                 }
                 stats.stop();
             },
             messages::Command::Reset => {
-                if shutdown_tx.is_empty() {
+                if stats.current_state() == messages::WorkerState::Busy {
                     debug!(logger, "Sending stop message");
-                    shutdown_tx.send(false).await;
+                    shutdown_tx.lock().await.take().map(|l| l.send(false));
                 }
                 stats.reset();
             }
@@ -200,61 +201,62 @@ impl StrategyChooser {
     }
 }
 
-async fn task_scheduler(logger: Logger, urls: Vec<String>, stats: Stats, strategy: messages::AttackStrategy, max_concurrency: u32, shutdown: Receiver<bool>) -> Result<()> {
+async fn task_scheduler(logger: Logger, urls: Vec<String>, stats: Stats, strategy: messages::AttackStrategy, max_concurrency: u32, shutdown: Arc<Mutex<oneshot::Receiver<bool>>>) -> Result<()> {
     if urls.is_empty() {
         return Ok(());
     }
     debug!(logger, "Task Scheduler starting");
-    let (start_tx, start_rx) = channel::<bool>(max_concurrency as usize);
-    let creator = stream::repeat(true);
     let mut chooser = StrategyChooser::new();
-    let mut combined = stream::select(creator, shutdown);
     let mut id: u64 = 0;
-    while let Some(keep_going) = combined.next().await {
-        if keep_going {
-            start_tx.send(true).await;
-            let url = chooser.choose(strategy, &urls).ok_or_else(|| Error::msg("Couldn't choose url".to_string()))?;
-            let t = worker_task(logger.new(o!("task" => "worker")), url.into(), stats.clone(), id, start_rx.clone());
-            id += 1;
-            task::spawn(t);
-        } else {
-            debug!(logger, "Received stop message");
-            break;
+    let https = HttpsConnector::new();
+    let client: Client<_, hyper::Body> = Client::builder().build(https);
+    let semaphore = Arc::new(Semaphore::new(false, max_concurrency as usize));
+    loop {
+        if let Ok(b) = shutdown.lock().await.try_recv() {
+            debug!(logger, "Received stop message {}", b);
+            break
         }
+        semaphore.acquire(1).await.disarm();
+        let url: Uri = chooser.choose(strategy, &urls)
+            .map(|u| u.parse().map_err(Error::from))
+            .unwrap_or_else(|| Err(Error::msg("Couldn't choose url".to_string())))?;
+
+        let t = worker_task(logger.new(o!("task" => "worker")), semaphore.clone(), client.clone(), url, stats.clone(), id);
+        id += 1;
+        tokio::spawn(async {
+            let _ = t.await;
+        });
     }
     debug!(logger, "Task Scheduler shutting down");
     Ok(())
 }
 
-async fn worker_task(logger: Logger, url: String, stats: Stats, id: u64, done: Receiver<bool>) -> Result<u64> {
-    let res = surf::get(&url).await.map_err(|e| Error::msg(format!("{}", e)))?;
+async fn worker_task(logger: Logger, semaphore: Arc<Semaphore>, client: Client<ClientConnector>, url: Uri, stats: Stats, id: u64) -> Result<u64> {
+    let res = client.get(url).await.map_err(|e| Error::msg(format!("{}", e)))?;
     let s = res.status().as_u16();
     stats.record_status(s);
     debug!(logger, "Worker {} result: {}", id, s);
-    done.recv().await;
+    semaphore.release(1);
     Ok(id)
 }
 
-async fn stats_executor(logger: Logger, stats: Stats, tx: Sender<messages::Status>) {
+async fn stats_executor(logger: Logger, stats: Stats, tx: watch::Sender<messages::Status>) {
     debug!(logger, "Stats heartbeat starting");
-    let timeout = async_std::stream::interval(Duration::from_secs(5));
+    let timeout = time::interval(Duration::from_secs(5));
     pin_mut!(timeout);
     while let Some(_) = timeout.next().await {
-        if tx.len() == 0 {
-            let s = stats.into_message();
-            debug!(logger, "Sending stats => {:?}", &s);
-            tx.send(s).await;
-        }
+        let s = stats.into_message();
+        debug!(logger, "Sending stats => {:?}", &s);
+        let _ = tx.broadcast(s);
     }
 }
 
-pub fn run_forever(logger: Logger, addr: String) -> Result<()> {
-    let (c_tx, c_rx) = channel(100);
-    let (stats_tx, stats_rx) = channel(1);
-    let state = State::new(c_tx, stats_rx);
+pub async fn run_forever(logger: Logger, addr: String) -> Result<()> {
+    let (c_tx, c_rx) = mpsc::channel(100);
     let stats = Stats::new();
-    task::spawn(stats_executor(logger.new(o!("task" => "stats")), stats.clone(), stats_tx));
-    task::spawn(command_executor(logger.new(o!("task" => "executor")), stats.clone(), c_rx));
-    let res = task::block_on(run(logger.new(o!("task" => "receiver")), addr, state));
-    res
+    let (stats_tx, stats_rx) = watch::channel(stats.into_message());
+    let state = State::new(c_tx, stats_rx);
+    tokio::spawn(stats_executor(logger.new(o!("task" => "stats")), stats.clone(), stats_tx));
+    tokio::spawn(command_executor(logger.new(o!("task" => "executor")), stats.clone(), c_rx));
+    tokio::spawn(run(logger.new(o!("task" => "receiver")), addr, state)).await?
 }
