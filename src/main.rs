@@ -6,6 +6,7 @@ use std::env;
 
 mod coordinator;
 mod messages;
+mod static_assets;
 mod stats;
 mod webserver;
 mod worker;

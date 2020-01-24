@@ -5,10 +5,11 @@ use std::{
 };
 use crate::{
     messages,
-    stats::StatsCollector
+    stats::StatsCollector,
+    static_assets,
 };
 use slog::{Logger, info, o};
-use warp::{self, Filter, Reply, http::StatusCode};
+use warp::{self, Filter, Reply, http::StatusCode, Rejection};
 
 use tokio::sync::{
     watch,
@@ -79,6 +80,18 @@ async fn start_workers(state: State, cmd: StartCommandRequest) -> Result<impl Re
     Ok(warp::reply::json(&resp_body))
 }
 
+async fn index() -> Result<impl Reply, Rejection> {
+    static_file("/static/index.html".to_string()).await
+}
+
+async fn static_file(path: String) -> Result<impl Reply, Rejection> {
+    if let Some(c) = static_assets::load_file(&path).await {
+        return Ok(warp::reply::html(c));
+    } else {
+        return Err(warp::reject::reject());
+    }
+}
+
 fn with_state(state: State) -> impl Filter<Extract = (State,), Error = Infallible> + Clone {
     warp::any().map(move || state.clone())
 }
@@ -110,10 +123,16 @@ pub async fn webserver_task(logger: Logger, addr: String, stats: StatsCollector,
         .and(warp::post())
         .and(with_state(state))
         .and_then(reset_workers);
+    let index_page = warp::path::end()
+        .and(warp::get())
+        .and_then(index);
+    let static_file = warp::path!("static" / String)
+        .and(warp::get())
+        .map(|p: String| "/static/".to_string() + &p)
+        .and_then(static_file);
 
     let workers = warp::path("workers").and(start.or(stop).or(reset));
-
-    let routes = warp::any().and(stats.or(workers));
+    let routes = warp::any().and(index_page.or(stats).or(workers).or(static_file));
     info!(logger, "Starting webserver at {}", addr);
     let addr: SocketAddr = addr.parse().unwrap();
     warp::serve(routes).run(addr).await;
