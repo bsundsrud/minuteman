@@ -9,12 +9,14 @@ use crate::{
     static_assets,
 };
 use slog::{Logger, info, o};
-use warp::{self, Filter, Reply, http::StatusCode, Rejection};
+use warp::{self, Filter, Reply, http::StatusCode, Rejection, reply::Response};
 
 use tokio::sync::{
     watch,
     Mutex,
 };
+use mime_guess;
+use headers::{ContentType, HeaderMapExt};
 
 use anyhow::Result as TaskResult;
 
@@ -86,7 +88,11 @@ async fn index() -> Result<impl Reply, Rejection> {
 
 async fn static_file(path: String) -> Result<impl Reply, Rejection> {
     if let Some(c) = static_assets::load_file(&path).await {
-        return Ok(warp::reply::html(c));
+        let mime = mime_guess::from_path(path).first_or_octet_stream();
+        let mut r = Response::new(c.into());
+        *r.status_mut() = StatusCode::OK;
+        r.headers_mut().typed_insert(ContentType::from(mime));
+        return Ok(r);
     } else {
         return Err(warp::reject::reject());
     }
