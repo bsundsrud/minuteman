@@ -1,0 +1,31 @@
+.controls {
+    margin-bottom: 5px;
+}
+
+.controls div {
+    display: inline;
+}
+
+.controls input {
+    margin-right: 5px;
+}
+
+.controls .url input {
+    width: 40%;
+    height: 1.2em;
+}
+
+.controls .concurrency input {
+    width: 6em;
+    height: 1.2em;
+}
+
+.controls .label {
+    margin-right: 3px;
+    font-weight: bold;
+}
+
+.btn {
+    margin-left: 2px;
+    margin-right: 2px;
+}

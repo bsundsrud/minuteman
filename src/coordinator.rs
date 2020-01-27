@@ -45,11 +45,11 @@ struct State {
     //peer_map: PeerMap,
     heartbeat: watch::Receiver<()>,
     broadcast: watch::Receiver<messages::Command>,
-    stats: mpsc::Sender<(SocketAddr, messages::Status)>,
+    stats: mpsc::Sender<messages::Status>,
 }
 
 impl State {
-    fn new(heartbeat: watch::Receiver<()>, broadcast: watch::Receiver<messages::Command>, stats: mpsc::Sender<(SocketAddr, messages::Status)>) -> State {
+    fn new(heartbeat: watch::Receiver<()>, broadcast: watch::Receiver<messages::Command>, stats: mpsc::Sender<messages::Status>) -> State {
         State {
             heartbeat,
             broadcast,
@@ -76,7 +76,7 @@ pub async fn heartbeat_task(logger: Logger, sender: watch::Sender<()>, shutdown:
     }
 }
 
-pub async fn start(logger: Logger, addr: String, broadcast: watch::Receiver<messages::Command>, shutdown: oneshot::Receiver<()>, stats: mpsc::Sender<(SocketAddr, messages::Status)>) -> Result<()> {
+pub async fn start(logger: Logger, addr: String, broadcast: watch::Receiver<messages::Command>, shutdown: oneshot::Receiver<()>, stats: mpsc::Sender<messages::Status>) -> Result<()> {
     debug!(logger, "Starting coordinator");
     let (hb_tx, hb_rx) = watch::channel(());
     tokio::spawn(heartbeat_task(logger.new(o!("task" => "heartbeat")), hb_tx, shutdown, Duration::from_secs(5)));
@@ -90,7 +90,7 @@ pub async fn start(logger: Logger, addr: String, broadcast: watch::Receiver<mess
     }
 }
 
-async fn handle_incoming_message(log: Logger, msg: Message, mut stats: mpsc::Sender<(SocketAddr, messages::Status)>, addr: &SocketAddr) -> Result<bool> {
+async fn handle_incoming_message(log: Logger, msg: Message, mut stats: mpsc::Sender<messages::Status>, addr: &SocketAddr) -> Result<bool> {
     let mut exit = false;
     match msg {
         Message::Ping(_) => {
@@ -100,9 +100,10 @@ async fn handle_incoming_message(log: Logger, msg: Message, mut stats: mpsc::Sen
             debug!(log, "Received pong");
         },
         Message::Text(t) => {
-            let m: messages::Status = serde_json::from_str(&t)?;
+            let mut m: messages::Status = serde_json::from_str(&t)?;
+            m.socket = Some(addr.clone());
             debug!(log, "Received Status => {:?}", m);
-            let _ = stats.send((addr.clone(), m)).await;
+            let _ = stats.send(m).await;
         },
         Message::Close(_) => {
             exit = true;
@@ -176,12 +177,12 @@ async fn handle_connection(logger: Logger, state: State, raw_stream: TcpStream, 
     Ok(())
 }
 
-async fn stats_collector_task(logger: Logger, stats: StatsCollector, mut rx: mpsc::Receiver<(SocketAddr, messages::Status)>) {
+async fn stats_collector_task(logger: Logger, stats: StatsCollector, mut rx: mpsc::Receiver<messages::Status>) {
     debug!(logger, "Starting stats collector");
 
-    while let Some((sock, status)) = rx.recv().await {
-        debug!(logger, "Received stats for {} => {:?}", &sock, &status);
-        stats.insert(sock, status);
+    while let Some(status) = rx.recv().await {
+        debug!(logger, "Received stats => {:?}", &status);
+        stats.insert(status);
     }
 }
 

@@ -24,7 +24,7 @@ build-prod: webapp-prod
 run-prod-coordinator: webapp-prod
 	cargo run --release
 
-run-prod-worker: webapp-prod
+run-prod-worker:
 	cargo run --release -- "ws://localhost:5556"
 
 .PHONY: default run-dev-coordinator run-dev-worker webapp-dev webapp-prod build-dev build-prod run-prod-coordinator run-prod-worker init

@@ -136,6 +136,8 @@ impl Stats {
         let stats = inner.read().unwrap();
         let counters = self.1.clone();
         messages::Status {
+            hostname: None,
+            socket: None,
             state: stats.state.clone(),
             elapsed: stats.elapsed.or(stats.started.map(|s| s.elapsed())),
             count: counters.count.load(Ordering::Acquire),
@@ -160,10 +162,10 @@ impl StatsCollector {
         }
     }
 
-    pub fn insert(&self, socket: SocketAddr, stats: messages::Status) {
+    pub fn insert(&self, stats: messages::Status) {
         let rc = self.stats.clone();
         let mut map = rc.write().unwrap();
-        map.insert(socket, stats);
+        map.insert(stats.socket.unwrap().clone(), stats);
     }
 
     pub fn all_stats(&self) -> HashMap<SocketAddr, messages::Status> {

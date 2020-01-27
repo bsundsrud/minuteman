@@ -1,4 +1,5 @@
 use std::{
+    time::Duration,
     net::SocketAddr,
     collections::HashMap,
     convert::Infallible,
@@ -32,7 +33,38 @@ struct State {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StatsResponse {
-    items: HashMap<SocketAddr, messages::Status>
+    hostname: Option<String>,
+    socket: SocketAddr,
+    pub state: messages::WorkerState,
+    pub elapsed: Option<u128>,
+    pub count: u32,
+    pub count_1xx: u32,
+    pub count_2xx: u32,
+    pub count_3xx: u32,
+    pub count_4xx: u32,
+    pub count_5xx: u32,
+}
+
+impl From<messages::Status> for StatsResponse {
+    fn from(s: messages::Status) -> StatsResponse {
+        StatsResponse {
+            hostname: s.hostname,
+            socket: s.socket.unwrap(),
+            state: s.state,
+            elapsed: s.elapsed.map(|e| e.as_millis()),
+            count: s.count,
+            count_1xx: s.count_1xx,
+            count_2xx: s.count_2xx,
+            count_3xx: s.count_3xx,
+            count_4xx: s.count_4xx,
+            count_5xx: s.count_5xx,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AllStatsResponse {
+    items: Vec<StatsResponse>
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -56,7 +88,11 @@ struct CommandResponse {
 }
 
 async fn get_stats(state: State) -> Result<impl Reply, Infallible> {
-    Ok(warp::reply::json(&state.stats.all_stats()))
+    let stats = state.stats.all_stats();
+    let r = AllStatsResponse {
+        items: stats.into_iter().map(|(_, s)| StatsResponse::from(s)).collect(),
+    };
+    Ok(warp::reply::json(&r))
 }
 
 async fn stop_workers(state: State) -> Result<impl Reply, Infallible> {

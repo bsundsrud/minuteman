@@ -12,6 +12,8 @@ use futures::{
     future,
     stream,
     pin_mut,
+    select,
+    join,
     StreamExt,
     TryStreamExt,
     sink::SinkExt,
@@ -38,6 +40,7 @@ use futures_intrusive::sync::Semaphore;
 
 use crate::stats::Stats;
 use crate::messages;
+use hostname;
 
 type ClientConnector = HttpsConnector<hyper::client::HttpConnector>;
 
@@ -108,8 +111,13 @@ async fn run(logger: Logger, addr: String, state: State) -> Result<()> {
     loop {
         if let Some(r) = combined.next().await {
             match r {
-                Action::Stats(s) => {
-                    let _ = tx.send(s.into_message()?).await;
+                Action::Stats(mut s) => {
+                    s.hostname = hostname::get()
+                        .map(|h| h.into_string()
+                             .unwrap_or_else(|_| String::new()))
+                        .ok();
+                    let s = s.into_message()?;
+                    let _ = tx.send(s).await;
                 },
                 Action::Incoming(m) => {
                     let exit = match m {
@@ -155,16 +163,18 @@ async fn command_executor(logger: Logger, stats: Stats, mut rx: mpsc::Receiver<m
                 handle = Some(h);
             },
             messages::Command::Stop => {
-                if stats.current_state() == messages::WorkerState::Busy {
+                stats.stop();
+                if let Some(h) = handle.take() {
                     debug!(logger, "Sending stop message");
                     shutdown_tx.lock().await.take().map(|l| l.send(false));
+                    let _ = h.await?;
                 }
-                stats.stop();
             },
             messages::Command::Reset => {
-                if stats.current_state() == messages::WorkerState::Busy {
+                if let Some(h) = handle.take() {
                     debug!(logger, "Sending stop message");
                     shutdown_tx.lock().await.take().map(|l| l.send(false));
+                    let _ = h.await?;
                 }
                 stats.reset();
             }
@@ -210,39 +220,50 @@ async fn task_scheduler(logger: Logger, urls: Vec<String>, stats: Stats, strateg
     debug!(logger, "Task Scheduler starting");
     let mut chooser = StrategyChooser::new();
     let mut id: u64 = 0;
-    let max_batches: usize = max_concurrency as usize / 4;
+    let max_batches: usize = usize::max(max_concurrency as usize, 1);
     let semaphore = Arc::new(Semaphore::new(false, max_batches));
+    info!(logger, "Max Batches: {}", max_batches);
     let https = HttpsConnector::new();
+    let mut future_list = stream::FuturesUnordered::new();
     loop {
         if let Ok(b) = shutdown.lock().await.try_recv() {
-            debug!(logger, "Received stop message {}", b);
+            info!(logger, "Received stop message {}", b);
+            while let Some(r) = future_list.next().await {
+                debug!(logger, "Drained future {:?}", r);
+
+            }
+            info!(logger, "Drained futures pool");
             break
         }
-        semaphore.acquire(1).await.disarm();
-        let url: Uri = chooser.choose(strategy, &urls)
-            .map(|u| u.parse().map_err(Error::from))
-            .unwrap_or_else(|| Err(Error::msg("Couldn't choose url".to_string())))?;
+        select! {
+            mut s = semaphore.acquire(1) => {
+                s.disarm();
+                let url: Uri = chooser.choose(strategy, &urls)
+                    .map(|u| u.parse().map_err(Error::from))
+                    .unwrap_or_else(|| Err(Error::msg("Couldn't choose url".to_string())))?;
 
-        let t1 = worker_task(logger.new(o!("task" => "worker")), semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
-        id += 1;
-        let t2 = worker_task(logger.new(o!("task" => "worker")), semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
-        let t3 = worker_task(logger.new(o!("task" => "worker")), semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
-        let t4 = worker_task(logger.new(o!("task" => "worker")), semaphore.clone(), https.clone(), url, stats.clone(), id);
-        let combined = future::join4(t1, t2, t3, t4);
-        tokio::spawn(async {
-            let _ = combined.await;
-        });
+                let t1 = worker_task(semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
+                // let t2 = worker_task(semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
+                // let t3 = worker_task(semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
+                // let t4 = worker_task(semaphore.clone(), https.clone(), url, stats.clone(), id);
+                id += 1;
+                //let combined = future::join4(t1, t2, t3, t4);
+                future_list.push(t1);
+            },
+            res = future_list.select_next_some() => {
+                debug!(logger, "Reaped batch {:?}, permits {}", res, semaphore.permits());
+            }
+        }
     }
-    debug!(logger, "Task Scheduler shutting down");
+    info!(logger, "Task Scheduler shutting down");
     Ok(())
 }
 
-async fn worker_task(logger: Logger, semaphore: Arc<Semaphore>, connector: ClientConnector, url: Uri, stats: Stats, id: u64) -> Result<u64> {
+async fn worker_task(semaphore: Arc<Semaphore>, connector: ClientConnector, url: Uri, stats: Stats, id: u64) -> Result<u64> {
     let client: Client<_, hyper::Body> = Client::builder().build(connector);
     let res = client.get(url).await.map_err(|e| Error::msg(format!("{}", e)))?;
     let s = res.status().as_u16();
     stats.record_status(s);
-    debug!(logger, "Worker {} result: {}", id, s);
     semaphore.release(1);
     Ok(id)
 }

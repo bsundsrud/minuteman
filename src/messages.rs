@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use std::time::Duration;
 use tungstenite::protocol::Message;
 
@@ -51,6 +52,8 @@ pub enum WorkerState {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Status {
+    pub hostname: Option<String>,
+    pub socket: Option<SocketAddr>,
     pub state: WorkerState,
     pub elapsed: Option<Duration>,
     pub count: u32,
