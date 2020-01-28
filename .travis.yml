@@ -17,7 +17,7 @@ matrix:
     script:
     - rustup component add clippy || travis_terminate 1
     - rustup component add rustfmt || travis_terminate 1
-    - make build-dev lint
+    - make init build-dev lint
 before_deploy: ci/before_deploy.sh
 branches:
   only:
