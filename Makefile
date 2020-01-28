@@ -42,7 +42,7 @@ run-prod-worker:
 
 lint:
 	cargo fmt --all -- --check
-	cargo clippy -- -D 'clippy::all'
+	cargo clippy $(CARGO_ARGS) -- -D 'clippy::all'
 
 dist-clean:
 	rm -rf dist
