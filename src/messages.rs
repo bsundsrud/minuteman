@@ -38,7 +38,7 @@ impl Command {
         Command::Reset
     }
 
-    pub fn into_message(&self) -> Result<Message> {
+    pub fn as_message(&self) -> Result<Message> {
         let s = serde_json::to_string(&self)?;
         Ok(Message::Text(s))
     }
@@ -65,7 +65,7 @@ pub struct Status {
 }
 
 impl Status {
-    pub fn into_message(&self) -> Result<Message> {
+    pub fn as_message(&self) -> Result<Message> {
         let s = serde_json::to_string(&self)?;
         Ok(Message::Text(s))
     }

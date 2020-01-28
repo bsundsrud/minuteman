@@ -1,13 +1,23 @@
+VERSION := $(shell cat Cargo.toml | head -5 | grep version | sed -e 's/.*version\s*=\s*"\(.*\)"/\1/')
+TARGET := $(shell uname -p)-$(shell uname -s)
+EXE := minuteman
+BUILD_DIR := target/release
+CARGO_ARGS :=
+ifeq ($(shell uname -s), Linux)
+  CARGO_ARGS := $(CARGO_ARGS) --target x86_64-unknown-linux-musl
+  BUILD_DIR := target/x86_64-unknown-linux-musl/release
+endif
+
 default: run-dev-coordinator
 
 init:
 	npm install .
 
 run-dev-coordinator: webapp-dev
-	cargo run
+	cargo run $(CARGO_ARGS)
 
 run-dev-worker:
-	cargo run -- "ws://localhost:5556"
+	cargo run $(CARGO_ARGS) -- "ws://localhost:5556"
 
 webapp-dev:
 	npm run "build:dev"
@@ -16,15 +26,30 @@ webapp-prod:
 	npm run "build:prod"
 
 build-dev: webapp-dev
-	cargo build
+	cargo build $(CARGO_ARGS)
 
 build-prod: webapp-prod
-	cargo build --release
+	cargo build --release $(CARGO_ARGS)
 
 run-prod-coordinator: webapp-prod
-	cargo run --release
+	cargo run --release $(CARGO_ARGS)
 
 run-prod-worker:
-	cargo run --release -- "ws://localhost:5556"
+	cargo run --release $(CARGO_ARGS) -- "ws://localhost:5556"
 
-.PHONY: default run-dev-coordinator run-dev-worker webapp-dev webapp-prod build-dev build-prod run-prod-coordinator run-prod-worker init
+lint:
+	cargo fmt --all -- --check
+	cargo clippy -- -D 'clippy::all'
+
+dist-clean:
+	rm -rf dist
+
+dist: dist-clean
+	mkdir -p dist
+	tar czf "dist/$(EXE)-$(TARGET)-$(VERSION).tar.gz" -C $(BUILD_DIR) $(EXE)
+
+clean: dist-clean
+	cargo clean
+
+
+.PHONY: default run-dev-coordinator run-dev-worker webapp-dev webapp-prod build-dev build-prod run-prod-coordinator run-prod-worker init lint clean dist-clean dist

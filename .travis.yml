@@ -1,0 +1,35 @@
+language: rust
+services:
+- docker
+env:
+  global:
+  - PROJECT_NAME: minuteman
+matrix:
+  fast_finish: true
+  include:
+  - os: linux
+    rust: stable
+    env: TARGET=x86_64-linux
+    addons:
+      apt:
+        packages:
+        - musl-tools
+    script:
+    - rustup component add clippy || travis_terminate 1
+    - rustup component add rustfmt || travis_terminate 1
+    - make lint
+before_deploy: ci/before_deploy.sh
+branches:
+  only:
+  - master
+  - "/^\\d+\\.\\d+\\.\\d+.*$/"
+deploy:
+  provider: releases
+  api_key:
+    secure: Oq9pTRS7d36l6ukgjueO/YW7IL4iojzHS5tnibHeVZr0iwWbxOah0XLttdw/0WQuSVedbJzVJAzUrNcnCX39tI3MILH/gPInm0P4SieGvSudVKW1Z52DBBBMLbx4fFBFq6U8lqcY0MNEDHmvO11a1r9k6whmRTBT7pcdHqofpe3USeW0yR0PYbzNUn7n5KfkX+tBwJxbeCO29ESYRXWucDMDW+7/2GdJL1OL+CGf9hYYsUymrsKbYakrlkJFMjV7sfZBrptXYi6wSuumvdJhf/OtW5SRKuuaupJFuLQqnncVIatxjqHRVp1GnjKzbx3AnQOEjHZeeBRbYolkkWHK083FUX8M0Rb3+lN9YXsRKKiM1jFkmBX7uQYXp5EJGoHT8BZWy752IQyH3klrO/a0fuI6QGwlVrSlJ3yqtbmYWjmzdnVtsK+h+2Soy7xxdGDzYpb0aBeEZ2DI+jkKRxtZ9QJa1nqc4ldTb3jIvHDrpolQeZo2dMIlfg5HbB9+HA6/oXQl4pUVE6zX+sy7Zt7iww8WjTJ5qVg20d62aQ7mqCXbzhYYZ9JJRXMqWaGY1H2kxiernnDtCsov5ln/lKbq7PJTl/J4yHCA0sYEfgGgtHK8XcPq27znOdWTl3kN6SyL3TzX9hKFW8Q/8vGg4suNuyyYWofWJpb/rMmV/Huz4Mw=
+  file: dist/*
+  file_glob: true
+  skip_cleanup: true
+  on:
+    repo: bsundsrud/minuteman
+    tags: true

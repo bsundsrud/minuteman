@@ -9,7 +9,9 @@ const StatsApi = {
             method: "GET",
             url: "/stats",
         }).then((resp) => {
-            StatsApi.data = resp.items;
+            let items = resp.items;
+            items.sort((first, second) => first.id - second.id);
+            StatsApi.data = items;
             StatsApi.fetching = false;
         });
     }

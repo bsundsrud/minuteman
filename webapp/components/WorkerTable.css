@@ -17,6 +17,10 @@
     /* border-bottom: 1px solid #ddd !important */;
 }
 
+.worker-table .worker-row.disconnected {
+    opacity: 0.6 !important;
+}
+
 .worker-table tbody tr.worker-row:nth-child(2n) td {
     background-color: #ddd;
 }

@@ -1,23 +1,14 @@
-use std::{
-    time::Duration,
-    net::SocketAddr,
-    collections::HashMap,
-    convert::Infallible,
-};
 use crate::{
-    messages,
-    stats::StatsCollector,
-    static_assets,
+    messages, static_assets,
+    stats::{self, StatsCollector},
 };
-use slog::{Logger, info, o};
-use warp::{self, Filter, Reply, http::StatusCode, Rejection, reply::Response};
+use slog::{info, o, Logger};
+use std::{convert::Infallible, net::SocketAddr};
+use warp::{self, http::StatusCode, reply::Response, Filter, Rejection, Reply};
 
-use tokio::sync::{
-    watch,
-    Mutex,
-};
-use mime_guess;
 use headers::{ContentType, HeaderMapExt};
+use mime_guess;
+use tokio::sync::{watch, Mutex};
 
 use anyhow::Result as TaskResult;
 
@@ -33,9 +24,16 @@ struct State {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StatsResponse {
+    id: u32,
     hostname: Option<String>,
     socket: SocketAddr,
-    pub state: messages::WorkerState,
+    state: stats::WorkerState,
+    latest: Option<SnapshotResponse>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SnapshotResponse {
+    pub state: stats::WorkerState,
     pub elapsed: Option<u128>,
     pub count: u32,
     pub count_1xx: u32,
@@ -45,11 +43,22 @@ struct StatsResponse {
     pub count_5xx: u32,
 }
 
-impl From<messages::Status> for StatsResponse {
-    fn from(s: messages::Status) -> StatsResponse {
+impl From<&stats::Status> for StatsResponse {
+    fn from(s: &stats::Status) -> StatsResponse {
+        let snapshot = s.snapshots.get(0);
         StatsResponse {
-            hostname: s.hostname,
-            socket: s.socket.unwrap(),
+            id: s.id,
+            hostname: s.hostname.clone(),
+            socket: s.socket,
+            state: s.state,
+            latest: snapshot.map(|s| s.into()),
+        }
+    }
+}
+
+impl From<&stats::Snapshot> for SnapshotResponse {
+    fn from(s: &stats::Snapshot) -> SnapshotResponse {
+        SnapshotResponse {
             state: s.state,
             elapsed: s.elapsed.map(|e| e.as_millis()),
             count: s.count,
@@ -64,21 +73,23 @@ impl From<messages::Status> for StatsResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct AllStatsResponse {
-    items: Vec<StatsResponse>
+    items: Vec<StatsResponse>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StartCommandRequest {
     urls: Vec<String>,
     strategy: Option<messages::AttackStrategy>,
-    max_concurrency: Option<u32>
+    max_concurrency: Option<u32>,
 }
 
 impl Into<messages::Command> for StartCommandRequest {
     fn into(self) -> messages::Command {
-        messages::Command::start(self.urls,
-                                 self.strategy.unwrap_or(messages::AttackStrategy::Random),
-                                 self.max_concurrency.unwrap_or(50))
+        messages::Command::start(
+            self.urls,
+            self.strategy.unwrap_or(messages::AttackStrategy::Random),
+            self.max_concurrency.unwrap_or(50),
+        )
     }
 }
 
@@ -88,30 +99,39 @@ struct CommandResponse {
 }
 
 async fn get_stats(state: State) -> Result<impl Reply, Infallible> {
-    let stats = state.stats.all_stats();
-    let r = AllStatsResponse {
-        items: stats.into_iter().map(|(_, s)| StatsResponse::from(s)).collect(),
-    };
+    let stats = state
+        .stats
+        .with_stats(|map| map.iter().map(|(_, s)| StatsResponse::from(s)).collect());
+    let r = AllStatsResponse { items: stats };
     Ok(warp::reply::json(&r))
 }
 
 async fn stop_workers(state: State) -> Result<impl Reply, Infallible> {
     info!(state.logger, "Stopping workers");
-    let _ = state.command_tx.clone().lock().await.broadcast(messages::Command::stop());
+    let _ = state
+        .command_tx
+        .clone()
+        .lock()
+        .await
+        .broadcast(messages::Command::stop());
     Ok(warp::reply::with_status("", StatusCode::NO_CONTENT))
 }
 
 async fn reset_workers(state: State) -> Result<impl Reply, Infallible> {
     info!(state.logger, "Resetting workers");
-    let _ = state.command_tx.clone().lock().await.broadcast(messages::Command::reset());
+    let _ = state
+        .command_tx
+        .clone()
+        .lock()
+        .await
+        .broadcast(messages::Command::reset());
     Ok(warp::reply::with_status("", StatusCode::NO_CONTENT))
 }
 
 async fn start_workers(state: State, cmd: StartCommandRequest) -> Result<impl Reply, Infallible> {
-
     info!(state.logger, "Sending command => {:?}", &cmd);
     let c: messages::Command = cmd.into();
-    let resp_body = CommandResponse {command: c.clone()};
+    let resp_body = CommandResponse { command: c.clone() };
 
     let _ = state.command_tx.clone().lock().await.broadcast(c);
 
@@ -128,9 +148,9 @@ async fn static_file(path: String) -> Result<impl Reply, Rejection> {
         let mut r = Response::new(c.into());
         *r.status_mut() = StatusCode::OK;
         r.headers_mut().typed_insert(ContentType::from(mime));
-        return Ok(r);
+        Ok(r)
     } else {
-        return Err(warp::reject::reject());
+        Err(warp::reject::reject())
     }
 }
 
@@ -138,7 +158,12 @@ fn with_state(state: State) -> impl Filter<Extract = (State,), Error = Infallibl
     warp::any().map(move || state.clone())
 }
 
-pub async fn webserver_task(logger: Logger, addr: String, stats: StatsCollector, command_tx: watch::Sender<messages::Command>) -> TaskResult<()> {
+pub async fn webserver_task(
+    logger: Logger,
+    addr: String,
+    stats: StatsCollector,
+    command_tx: watch::Sender<messages::Command>,
+) -> TaskResult<()> {
     let state = State {
         stats,
         logger: logger.new(o!("task" => "webserver")),
@@ -165,9 +190,7 @@ pub async fn webserver_task(logger: Logger, addr: String, stats: StatsCollector,
         .and(warp::post())
         .and(with_state(state))
         .and_then(reset_workers);
-    let index_page = warp::path::end()
-        .and(warp::get())
-        .and_then(index);
+    let index_page = warp::path::end().and(warp::get()).and_then(index);
     let static_file = warp::path!("static" / String)
         .and(warp::get())
         .map(|p: String| "/static/".to_string() + &p)

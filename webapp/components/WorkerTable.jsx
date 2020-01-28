@@ -38,6 +38,31 @@ const Meter = {
     }
 }
 
+function makeWorkerRow(stats) {
+    let s = stats.latest || {};
+    let classes = stats.state === "Disconnected" ? "worker-row disconnected" : "worker-row";
+    return (<tr className={classes} key={s.id}>
+                <td>{stats.id}</td>
+                <td><abbr title={stats.socket}>{stats.hostname}</abbr></td>
+                <td>{stats.state}</td>
+                <td>{s.elapsed ? formatMillis(s.elapsed) : ""}</td>
+                <td>{s.count}</td>
+                <td><Meter elapsedMs={s.elapsed} count={s.count_1xx}/></td>
+                <td className="bg-green">
+                    <Meter elapsedMs={s.elapsed} count={s.count_2xx} />
+                </td>
+                <td>
+                    <Meter elapsedMs={s.elapsed} count={s.count_3xx} />
+                </td>
+                <td className="bg-yellow">
+                    <Meter elapsedMs={s.elapsed} count={s.count_4xx}/>
+                </td>
+                <td className="bg-red">
+                    <Meter elapsedMs={s.elapsed} count={s.count_5xx}/>
+                </td>
+            </tr>)
+}
+
 const WorkerTable = {
     oninit: (vnode) => {
         StatsApi.fetch();
@@ -48,8 +73,8 @@ const WorkerTable = {
         return (<table className="worker-table">
                     <thead>
                         <tr className="header-row">
+                            <th>ID</th>
                             <th>Host</th>
-                            <th>Socket</th>
                             <th>State</th>
                             <th>Elapsed</th>
                             <th>Requests</th>
@@ -61,28 +86,7 @@ const WorkerTable = {
                         </tr>
                     </thead>
                     <tbody>
-                        { StatsApi.data.map((s) => {
-                            return (<tr className="worker-row" key={s.socket}>
-                                        <td>{s.hostname}</td>
-                                        <td>{s.socket}</td>
-                                        <td>{s.state}</td>
-                                        <td>{s.elapsed ? formatMillis(s.elapsed) : ""}</td>
-                                        <td>{s.count}</td>
-                                        <td><Meter elapsedMs={s.elapsed} count={s.count_1xx}/></td>
-                                        <td className="bg-green">
-                                            <Meter elapsedMs={s.elapsed} count={s.count_2xx} />
-                                        </td>
-                                        <td>
-                                            <Meter elapsedMs={s.elapsed} count={s.count_3xx} />
-                                        </td>
-                                        <td className="bg-yellow">
-                                            <Meter elapsedMs={s.elapsed} count={s.count_4xx}/>
-                                        </td>
-                                        <td className="bg-red">
-                                            <Meter elapsedMs={s.elapsed} count={s.count_5xx}/>
-                                        </td>
-                                    </tr>);
-                        }) }
+                        { StatsApi.data.map(makeWorkerRow) }
                     </tbody>
                 </table>);
     }

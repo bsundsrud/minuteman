@@ -41,8 +41,8 @@ mod embed {
 
 #[cfg(debug_assertions)]
 mod external {
-    use urlencoding::decode;
     use std::path::PathBuf;
+    use urlencoding::decode;
 
     fn validate_path(p: &str) -> Option<PathBuf> {
         let p = match decode(p) {
@@ -52,9 +52,7 @@ mod external {
         let mut buf = std::env::current_dir().unwrap();
 
         for seg in p.split('/') {
-            if seg.starts_with("..") {
-                return None;
-            } else if seg.contains('\\') {
+            if seg.starts_with("..") || seg.contains('\\') {
                 return None;
             } else {
                 buf.push(seg);
