@@ -13,6 +13,9 @@ default: run-dev-coordinator
 init:
 	npm install .
 
+check: webapp-dev
+	cargo check $(CARGO_ARGS)
+
 run-dev-coordinator: webapp-dev
 	cargo run $(CARGO_ARGS)
 
@@ -52,4 +55,4 @@ clean: dist-clean
 	cargo clean
 
 
-.PHONY: default run-dev-coordinator run-dev-worker webapp-dev webapp-prod build-dev build-prod run-prod-coordinator run-prod-worker init lint clean dist-clean dist
+.PHONY: default run-dev-coordinator run-dev-worker webapp-dev webapp-prod build-dev build-prod run-prod-coordinator run-prod-worker init lint clean dist-clean dist check
