@@ -48,8 +48,11 @@ dist-clean:
 	rm -rf dist
 
 dist: dist-clean
-	mkdir -p dist
-	tar czf "dist/$(EXE)-$(TARGET)-$(VERSION).tar.gz" -C $(BUILD_DIR) $(EXE)
+	mkdir -p dist/$(EXE)/bin
+	cp scripts/* dist/$(EXE)/
+	cp -R systemd dist/$(EXE)/
+	cp "$(BUILD_DIR)/$(EXE)" dist/$(EXE)/bin
+	tar czf "dist/$(EXE)-$(TARGET)-$(VERSION).tar.gz" -C dist $(EXE)
 
 clean: dist-clean
 	cargo clean

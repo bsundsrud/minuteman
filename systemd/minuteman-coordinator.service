@@ -1,0 +1,8 @@
+[Unit]
+Description=Minuteman Load Tester - Coordinator
+After=network-online.target
+
+[Service]
+ExecStart=##INSTALL_DIR##/minuteman
+Restart=on-failure
+RestartSec=5

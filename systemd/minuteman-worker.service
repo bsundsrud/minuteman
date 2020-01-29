@@ -1,0 +1,9 @@
+[Unit]
+Description=Minuteman Load Tester - Worker
+After=network-online.target
+
+[Service]
+EnvironmentFile=/etc/default/minuteman-worker
+ExecStart=##INSTALL_DIR##/minuteman $MINUTEMAN_COORDINATOR
+Restart=on-failure
+RestartSec=5
