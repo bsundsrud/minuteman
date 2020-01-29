@@ -134,7 +134,7 @@ async fn command_executor(
     mut rx: mpsc::Receiver<messages::Command>,
 ) -> Result<()> {
     debug!(logger, "Started executor task");
-    let (shutdown_tx, shutdown_rx) = oneshot::channel::<bool>();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let shutdown_tx = Arc::new(Mutex::new(Some(shutdown_tx)));
     let shutdown_rx = Arc::new(Mutex::new(shutdown_rx));
     let mut handle = None;
@@ -149,7 +149,7 @@ async fn command_executor(
             } => {
                 stats.start();
                 {
-                    let (tx, rx) = oneshot::channel::<bool>();
+                    let (tx, rx) = oneshot::channel::<()>();
                     *shutdown_tx.clone().lock().await = Some(tx);
                     *shutdown_rx.clone().lock().await = rx;
                 }
@@ -167,14 +167,14 @@ async fn command_executor(
                 stats.stop();
                 if let Some(h) = handle.take() {
                     debug!(logger, "Sending stop message");
-                    shutdown_tx.lock().await.take().map(|l| l.send(false));
+                    shutdown_tx.lock().await.take().map(|l| l.send(()));
                     let _ = h.await?;
                 }
             }
             messages::Command::Reset => {
                 if let Some(h) = handle.take() {
                     debug!(logger, "Sending stop message");
-                    shutdown_tx.lock().await.take().map(|l| l.send(false));
+                    shutdown_tx.lock().await.take().map(|l| l.send(()));
                     let _ = h.await?;
                 }
                 stats.reset();
@@ -220,7 +220,7 @@ async fn task_scheduler(
     stats: Stats,
     strategy: messages::AttackStrategy,
     max_concurrency: u32,
-    shutdown: Arc<Mutex<oneshot::Receiver<bool>>>,
+    shutdown: Arc<Mutex<oneshot::Receiver<()>>>,
 ) -> Result<()> {
     if urls.is_empty() {
         return Ok(());
@@ -234,12 +234,8 @@ async fn task_scheduler(
     let https = HttpsConnector::new();
     let mut future_list = stream::FuturesUnordered::new();
     loop {
-        if let Ok(b) = shutdown.lock().await.try_recv() {
-            info!(logger, "Received stop message {}", b);
-            while let Some(r) = future_list.next().await {
-                debug!(logger, "Drained future {:?}", r);
-            }
-            info!(logger, "Drained futures pool");
+        if shutdown.lock().await.try_recv().is_ok() {
+            info!(logger, "Received stop message");
             break;
         }
         select! {
@@ -250,11 +246,7 @@ async fn task_scheduler(
                     .unwrap_or_else(|| Err(Error::msg("Couldn't choose url".to_string())))?;
 
                 let t1 = worker_task(semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
-                // let t2 = worker_task(semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
-                // let t3 = worker_task(semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
-                // let t4 = worker_task(semaphore.clone(), https.clone(), url, stats.clone(), id);
                 id += 1;
-                //let combined = future::join4(t1, t2, t3, t4);
                 future_list.push(t1);
             },
             res = future_list.select_next_some() => {
@@ -262,6 +254,7 @@ async fn task_scheduler(
             }
         }
     }
+    drop(future_list);
     info!(logger, "Task Scheduler shutting down");
     Ok(())
 }
