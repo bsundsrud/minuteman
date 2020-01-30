@@ -34,7 +34,7 @@ systemctl start minuteman-coordinator
 
 ### Worker Size
 
-Machine type: c2-standard-4
+Machine type: n1-highcpu-4
 
 ### Worker Instance Metadata
 

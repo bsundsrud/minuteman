@@ -6,7 +6,11 @@ use hyper_rustls::HttpsConnector;
 use rand::{self, seq::SliceRandom};
 use serde_json;
 use slog::{debug, error, info, o, warn, Logger};
-use std::{sync::Arc, time::Duration};
+use std::{
+    convert::TryInto,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tungstenite::protocol::Message;
 
 use futures_intrusive::sync::Semaphore;
@@ -263,16 +267,21 @@ async fn worker_task(
     semaphore: Arc<Semaphore>,
     connector: ClientConnector,
     url: Uri,
-    stats: Stats,
+    mut stats: Stats,
     id: u64,
 ) -> Result<u64> {
     let client: Client<_, hyper::Body> = Client::builder().build(connector);
+    let started = Instant::now();
     let res = client
         .get(url)
         .await
         .map_err(|e| Error::msg(format!("{}", e)))?;
     let s = res.status().as_u16();
-    stats.record_status(s);
+    let elapsed = started.elapsed();
+    stats.record(
+        s,
+        elapsed.as_millis().try_into().unwrap_or(u64::max_value()),
+    );
     semaphore.release(1);
     Ok(id)
 }

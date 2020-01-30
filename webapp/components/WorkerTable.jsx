@@ -36,7 +36,14 @@ const Meter = {
                     {rate > 0 ? <span className="meter--rate">({rate}/s)</span> : ""}
                 </span>);
     }
-}
+};
+
+const Gauge = {
+    view: (vnode) => {
+        let value = vnode.attrs.value > 0 ? vnode.attrs.value : "-";
+        return (<span className="gauge">{value}</span>);
+    }
+};
 
 function makeWorkerRow(stats) {
     let s = stats.latest || {};
@@ -46,7 +53,12 @@ function makeWorkerRow(stats) {
                 <td><abbr title={stats.socket}>{stats.hostname}</abbr></td>
                 <td>{stats.state}</td>
                 <td>{s.elapsed ? formatMillis(s.elapsed) : ""}</td>
-                <td>{s.count}</td>
+                <td><Gauge value={s.min}/></td>
+                <td><Gauge value={s.mean.toFixed(1)}/></td>
+                <td><Gauge value={s.median}/></td>
+                <td><Gauge value={s.p90}/></td>
+                <td><Gauge value={s.max}/></td>
+                <td><Meter elapsedMs={s.elapsed} count={s.count}/></td>
                 <td><Meter elapsedMs={s.elapsed} count={s.count_1xx}/></td>
                 <td className="bg-green">
                     <Meter elapsedMs={s.elapsed} count={s.count_2xx} />
@@ -72,11 +84,21 @@ const WorkerTable = {
     view:() => {
         return (<table className="worker-table">
                     <thead>
+                        <tr>
+                            <th colspan="4"></th>
+                            <th colspan="5">Response Times (ms)</th>
+                            <th colspan="6">Request Counts</th>
+                        </tr>
                         <tr className="header-row">
                             <th>ID</th>
                             <th>Host</th>
                             <th>State</th>
                             <th>Elapsed</th>
+                            <th>Min</th>
+                            <th>Mean</th>
+                            <th>Median</th>
+                            <th>p90</th>
+                            <th>Max</th>
                             <th>Requests</th>
                             <th>1xx</th>
                             <th className="bg-green">2xx</th>

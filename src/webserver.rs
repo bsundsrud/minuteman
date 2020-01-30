@@ -35,6 +35,11 @@ struct StatsResponse {
 struct SnapshotResponse {
     pub state: stats::WorkerState,
     pub elapsed: Option<u128>,
+    pub min: u64,
+    pub max: u64,
+    pub mean: f64,
+    pub median: u64,
+    pub p90: u64,
     pub count: u32,
     pub count_1xx: u32,
     pub count_2xx: u32,
@@ -61,6 +66,11 @@ impl From<&stats::Snapshot> for SnapshotResponse {
         SnapshotResponse {
             state: s.state,
             elapsed: s.elapsed.map(|e| e.as_millis()),
+            min: s.min,
+            max: s.max,
+            mean: s.mean,
+            median: s.median,
+            p90: s.p90,
             count: s.count,
             count_1xx: s.count_1xx,
             count_2xx: s.count_2xx,

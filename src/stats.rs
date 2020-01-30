@@ -10,6 +10,7 @@ use std::{
 };
 
 use anyhow::{Error, Result};
+use hdrhistogram::Histogram;
 use serde::{Deserialize, Serialize};
 
 struct StatsInner {
@@ -77,43 +78,49 @@ impl StatsInner {
 }
 
 #[derive(Clone)]
-pub struct Stats(Arc<RwLock<StatsInner>>, Arc<Counters>);
+pub struct Stats {
+    inner: Arc<RwLock<StatsInner>>,
+    counters: Arc<Counters>,
+    histo: Arc<RwLock<Histogram<u64>>>,
+}
 
 impl Stats {
     pub fn new() -> Stats {
-        Stats(
-            Arc::new(RwLock::new(StatsInner::new())),
-            Arc::new(Counters::new()),
-        )
+        let mut histo = Histogram::new_with_max(60_000, 5).unwrap();
+        histo.auto(true);
+        Stats {
+            inner: Arc::new(RwLock::new(StatsInner::new())),
+            counters: Arc::new(Counters::new()),
+            histo: Arc::new(RwLock::new(histo)),
+        }
     }
 
     pub fn start(&self) {
         self.reset();
-        let inner = self.0.clone();
-        let mut stats = inner.write().unwrap();
+        let mut stats = self.inner.write().unwrap();
         stats.state = messages::WorkerState::Busy;
         stats.started = Some(Instant::now());
     }
 
     pub fn stop(&self) {
-        let inner = self.0.clone();
-        let mut stats = inner.write().unwrap();
+        let mut stats = self.inner.write().unwrap();
         stats.elapsed = stats.started.map(|s| s.elapsed());
         stats.state = messages::WorkerState::Idle;
     }
 
     pub fn reset(&self) {
-        let inner = self.0.clone();
-        let mut stats = inner.write().unwrap();
-        let counters = self.1.clone();
+        let mut stats = self.inner.write().unwrap();
+        let counters = self.counters.clone();
+        let mut histo = self.histo.write().unwrap();
+        histo.reset();
         stats.elapsed = None;
         stats.started = None;
         stats.state = messages::WorkerState::Idle;
         counters.clear();
     }
 
-    pub fn record_status(&self, status: u16) {
-        let counters = self.1.clone();
+    pub fn record(&mut self, status: u16, elapsed_ms: u64) {
+        let counters = self.counters.clone();
         counters.inc_count();
         if status >= 500 {
             counters.inc_5xx();
@@ -126,17 +133,30 @@ impl Stats {
         } else if status >= 100 {
             counters.inc_1xx();
         }
+        let mut histo = self.histo.write().unwrap();
+        histo.record(elapsed_ms).unwrap();
     }
 
     pub fn as_message(&self) -> messages::Status {
-        let inner = self.0.clone();
-        let stats = inner.read().unwrap();
-        let counters = self.1.clone();
+        let stats = self.inner.read().unwrap();
+        let counters = self.counters.clone();
+        let histo = self.histo.read().unwrap();
+        let min = histo.min();
+        let max = histo.max();
+        let mean = histo.mean();
+        let median = histo.value_at_quantile(0.5);
+        let p90 = histo.value_at_quantile(0.9);
+        drop(histo);
         messages::Status {
             hostname: None,
             socket: None,
             state: stats.state,
             elapsed: stats.elapsed.or_else(|| stats.started.map(|s| s.elapsed())),
+            min,
+            max,
+            mean,
+            median,
+            p90,
             count: counters.count.load(Ordering::Acquire),
             count_1xx: counters.count_1xx.load(Ordering::Acquire),
             count_2xx: counters.count_2xx.load(Ordering::Acquire),
@@ -169,6 +189,11 @@ pub struct Snapshot {
     pub timestamp: SystemTime,
     pub state: WorkerState,
     pub elapsed: Option<Duration>,
+    pub min: u64,
+    pub max: u64,
+    pub mean: f64,
+    pub median: u64,
+    pub p90: u64,
     pub count: u32,
     pub count_1xx: u32,
     pub count_2xx: u32,
@@ -183,6 +208,11 @@ impl From<messages::Status> for Snapshot {
             timestamp: SystemTime::now(),
             state: s.state.into(),
             elapsed: s.elapsed,
+            min: s.min,
+            max: s.max,
+            mean: s.mean,
+            median: s.median,
+            p90: s.p90,
             count: s.count,
             count_1xx: s.count_1xx,
             count_2xx: s.count_2xx,
