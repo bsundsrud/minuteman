@@ -4,17 +4,23 @@
     border-collapse: separate;
     margin-top: 15px;
 }
-
-.worker-table .header-row th {
-    border-bottom: 1px solid #777 !important;
-    border-top: 1px solid #777 !important;
+.worker-table th, .worker-table td {
     padding: 3px;
+}
+.worker-table .header-row th {
+    border-bottom: 1px solid #444 !important;
+    border-top: 1px solid #444 !important;
 }
 
 .worker-table .worker-row td {
     text-align: center;
-    padding: 3px;
     /* border-bottom: 1px solid #ddd !important */;
+}
+
+.worker-table .footer-row td {
+    text-align: center;
+    font-weight: bold;
+    border-top: 3px double #444 !important;
 }
 
 .worker-table .worker-row.disconnected {

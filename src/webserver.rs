@@ -41,11 +41,17 @@ struct SnapshotResponse {
     pub median: u64,
     pub p90: u64,
     pub count: u32,
+    pub rate_count: f64,
     pub count_1xx: u32,
+    pub rate_1xx: f64,
     pub count_2xx: u32,
+    pub rate_2xx: f64,
     pub count_3xx: u32,
+    pub rate_3xx: f64,
     pub count_4xx: u32,
+    pub rate_4xx: f64,
     pub count_5xx: u32,
+    pub rate_5xx: f64,
 }
 
 impl From<&stats::Status> for StatsResponse {
@@ -72,11 +78,41 @@ impl From<&stats::Snapshot> for SnapshotResponse {
             median: s.median,
             p90: s.p90,
             count: s.count,
+            rate_count: s
+                .elapsed
+                .map(|e| e.as_secs_f64())
+                .map(|e| f64::from(s.count) / e)
+                .unwrap_or(0.0),
             count_1xx: s.count_1xx,
+            rate_1xx: s
+                .elapsed
+                .map(|e| e.as_secs_f64())
+                .map(|e| f64::from(s.count_1xx) / e)
+                .unwrap_or(0.0),
             count_2xx: s.count_2xx,
+            rate_2xx: s
+                .elapsed
+                .map(|e| e.as_secs_f64())
+                .map(|e| f64::from(s.count_2xx) / e)
+                .unwrap_or(0.0),
             count_3xx: s.count_3xx,
+            rate_3xx: s
+                .elapsed
+                .map(|e| e.as_secs_f64())
+                .map(|e| f64::from(s.count_3xx) / e)
+                .unwrap_or(0.0),
             count_4xx: s.count_4xx,
+            rate_4xx: s
+                .elapsed
+                .map(|e| e.as_secs_f64())
+                .map(|e| f64::from(s.count_4xx) / e)
+                .unwrap_or(0.0),
             count_5xx: s.count_5xx,
+            rate_5xx: s
+                .elapsed
+                .map(|e| e.as_secs_f64())
+                .map(|e| f64::from(s.count_5xx) / e)
+                .unwrap_or(0.0),
         }
     }
 }
