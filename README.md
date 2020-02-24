@@ -1,6 +1,6 @@
 # Minuteman
 
-[![Build Status](https://travis-ci.org/bsundsrud/minuteman.svg?branch=master)](https://travis-ci.org/bsundsrud/minuteman) | ![GitHub release (latest by date)](https://img.shields.io/github/v/release/bsundsrud/minuteman)
+[![Build Status](https://travis-ci.org/bsundsrud/minuteman.svg?branch=master)](https://travis-ci.org/bsundsrud/minuteman) [![GitHub release (latest by date)](https://img.shields.io/github/v/release/bsundsrud/minuteman)](https://github.com/bsundsrud/minuteman/releases)
 
 **Please don't be evil**
 
