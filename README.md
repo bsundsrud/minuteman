@@ -1,5 +1,7 @@
 # Minuteman
 
+[![Build Status](https://travis-ci.org/bsundsrud/minuteman.svg?branch=master)](https://travis-ci.org/bsundsrud/minuteman) | ![GitHub release (latest by date)](https://img.shields.io/github/v/release/bsundsrud/minuteman)
+
 **Please don't be evil**
 
 [Minuteman](https://en.wikipedia.org/wiki/LGM-30_Minuteman) is an elastic load testing tool.
