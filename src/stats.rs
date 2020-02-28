@@ -82,6 +82,9 @@ pub struct Stats {
     inner: Arc<RwLock<StatsInner>>,
     counters: Arc<Counters>,
     histo: Arc<RwLock<Histogram<u64>>>,
+    task_gauge: Arc<AtomicU32>,
+    task_queue: Arc<AtomicU32>,
+    task_max: Arc<AtomicU32>,
 }
 
 impl Stats {
@@ -92,6 +95,9 @@ impl Stats {
             inner: Arc::new(RwLock::new(StatsInner::new())),
             counters: Arc::new(Counters::new()),
             histo: Arc::new(RwLock::new(histo)),
+            task_gauge: Arc::new(AtomicU32::new(0)),
+            task_queue: Arc::new(AtomicU32::new(0)),
+            task_max: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -119,6 +125,18 @@ impl Stats {
         counters.clear();
     }
 
+    pub fn record_task_max(&mut self, max: u32) {
+        self.task_max.store(max, Ordering::Release);
+    }
+
+    pub fn record_current_tasks(&mut self, current: u32) {
+        self.task_gauge.store(current, Ordering::Release);
+    }
+
+    pub fn record_queue_depth(&mut self, current: u32) {
+        self.task_queue.store(current, Ordering::Release);
+    }
+
     pub fn record(&mut self, status: u16, elapsed_ms: u64) {
         let counters = self.counters.clone();
         counters.inc_count();
@@ -144,6 +162,7 @@ impl Stats {
         let min = histo.min();
         let max = histo.max();
         let mean = histo.mean();
+        let stdev = histo.stdev();
         let median = histo.value_at_quantile(0.5);
         let p90 = histo.value_at_quantile(0.9);
         drop(histo);
@@ -152,9 +171,13 @@ impl Stats {
             socket: None,
             state: stats.state,
             elapsed: stats.elapsed.or_else(|| stats.started.map(|s| s.elapsed())),
+            tasks: self.task_gauge.load(Ordering::Acquire),
+            task_queue: self.task_queue.load(Ordering::Acquire),
+            tasks_max: self.task_max.load(Ordering::Acquire),
             min,
             max,
             mean,
+            stdev,
             median,
             p90,
             count: counters.count.load(Ordering::Acquire),
@@ -189,9 +212,13 @@ pub struct Snapshot {
     pub timestamp: SystemTime,
     pub state: WorkerState,
     pub elapsed: Option<Duration>,
+    pub tasks: u32,
+    pub task_queue: u32,
+    pub tasks_max: u32,
     pub min: u64,
     pub max: u64,
     pub mean: f64,
+    pub stdev: f64,
     pub median: u64,
     pub p90: u64,
     pub count: u32,
@@ -208,9 +235,13 @@ impl From<messages::Status> for Snapshot {
             timestamp: SystemTime::now(),
             state: s.state.into(),
             elapsed: s.elapsed,
+            tasks: s.tasks,
+            task_queue: s.task_queue,
+            tasks_max: s.tasks_max,
             min: s.min,
             max: s.max,
             mean: s.mean,
+            stdev: s.stdev,
             median: s.median,
             p90: s.p90,
             count: s.count,

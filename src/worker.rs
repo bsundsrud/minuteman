@@ -221,7 +221,7 @@ impl StrategyChooser {
 async fn task_scheduler(
     logger: Logger,
     urls: Vec<String>,
-    stats: Stats,
+    mut stats: Stats,
     strategy: messages::AttackStrategy,
     max_concurrency: u32,
     shutdown: Arc<Mutex<oneshot::Receiver<()>>>,
@@ -232,8 +232,9 @@ async fn task_scheduler(
     debug!(logger, "Task Scheduler starting");
     let mut chooser = StrategyChooser::new();
     let mut id: u64 = 0;
-    let max_batches: usize = usize::max(max_concurrency as usize, 1);
-    let semaphore = Arc::new(Semaphore::new(false, max_batches));
+    let max_batches: u32 = u32::max(max_concurrency, 1);
+    let semaphore = Arc::new(Semaphore::new(false, max_batches as usize));
+    stats.record_task_max(max_batches);
     info!(logger, "Max Batches: {}", max_batches);
     let https = HttpsConnector::new();
     let mut future_list = stream::FuturesUnordered::new();
@@ -242,14 +243,16 @@ async fn task_scheduler(
             info!(logger, "Received stop message");
             break;
         }
+        let mut stats = stats.clone();
+        stats.record_current_tasks(semaphore.permits() as u32);
+        stats.record_queue_depth(future_list.len() as u32);
         select! {
             mut s = semaphore.acquire(1) => {
                 s.disarm();
                 let url: Uri = chooser.choose(strategy, &urls)
                     .map(|u| u.parse().map_err(Error::from))
                     .unwrap_or_else(|| Err(Error::msg("Couldn't choose url".to_string())))?;
-
-                let t1 = worker_task(semaphore.clone(), https.clone(), url.clone(), stats.clone(), id);
+                let t1 = worker_task(semaphore.clone(), https.clone(), url.clone(), stats, id);
                 id += 1;
                 future_list.push(t1);
             },
