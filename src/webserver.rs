@@ -56,6 +56,8 @@ struct SnapshotResponse {
     pub rate_4xx: f64,
     pub count_5xx: u32,
     pub rate_5xx: f64,
+    pub count_fail: u32,
+    pub rate_fail: f64,
 }
 
 impl From<&stats::Status> for StatsResponse {
@@ -120,6 +122,12 @@ impl From<&stats::Snapshot> for SnapshotResponse {
                 .elapsed
                 .map(|e| e.as_secs_f64())
                 .map(|e| f64::from(s.count_5xx) / e)
+                .unwrap_or(0.0),
+            count_fail: s.count_fail,
+            rate_fail: s
+                .elapsed
+                .map(|e| e.as_secs_f64())
+                .map(|e| f64::from(s.count_fail) / e)
                 .unwrap_or(0.0),
         }
     }

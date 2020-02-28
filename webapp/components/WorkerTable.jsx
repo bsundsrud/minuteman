@@ -73,6 +73,9 @@ function makeWorkerRow(stats) {
                 <td className="bg-red">
                     <Meter rate={s.rate_5xx} count={s.count_5xx}/>
                 </td>
+                <td className="bg-red">
+                    <Meter rate={s.rate_fail} count={s.count_fail}/>
+                </td>
                 <td>{queueStats}</td>
             </tr>)
 }
@@ -122,6 +125,8 @@ function makeSummaryRow(stats) {
         acc.rate_4xx += s.rate_4xx;
         acc.count_5xx += s.count_5xx;
         acc.rate_5xx += s.rate_5xx;
+        acc.count_fail += s.count_fail;
+        acc.rate_fail += s.rate_fail;
         acc.mean += s.mean;
         acc.stdev += s.stdev;
         acc.median += s.median;
@@ -161,6 +166,9 @@ function makeSummaryRow(stats) {
                 <td>
                     <Meter rate={data.rate_5xx} count={data.count_5xx}/>
                 </td>
+                <td>
+                    <Meter rate={data.rate_fail} count={data.count_fail}/>
+                </td>
                 <td></td>
             </tr>);
 }
@@ -177,7 +185,7 @@ const WorkerTable = {
                         <tr>
                             <th colspan="4"></th>
                             <th colspan="6">Response Times (ms)</th>
-                            <th colspan="6">Request Counts</th>
+                            <th colspan="7">Request Counts</th>
                         </tr>
                         <tr className="header-row">
                             <th>ID</th>
@@ -196,6 +204,7 @@ const WorkerTable = {
                             <th>3xx</th>
                             <th className="bg-yellow">4xx</th>
                             <th className="bg-red">5xx</th>
+                            <th className="bg-red">Fail</th>
                             <th>Available/Queue Depth/Max</th>
                         </tr>
                     </thead>

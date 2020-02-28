@@ -26,6 +26,7 @@ struct Counters {
     count_3xx: AtomicU32,
     count_4xx: AtomicU32,
     count_5xx: AtomicU32,
+    count_fail: AtomicU32,
 }
 
 impl Counters {
@@ -57,6 +58,10 @@ impl Counters {
         self.count_5xx.fetch_add(1, Ordering::AcqRel);
     }
 
+    pub fn inc_fail(&self) {
+        self.count_fail.fetch_add(1, Ordering::AcqRel);
+    }
+
     pub fn clear(&self) {
         self.count.store(0, Ordering::SeqCst);
         self.count_1xx.store(0, Ordering::SeqCst);
@@ -64,6 +69,7 @@ impl Counters {
         self.count_3xx.store(0, Ordering::SeqCst);
         self.count_4xx.store(0, Ordering::SeqCst);
         self.count_5xx.store(0, Ordering::SeqCst);
+        self.count_fail.store(0, Ordering::SeqCst);
     }
 }
 
@@ -123,6 +129,9 @@ impl Stats {
         stats.started = None;
         stats.state = messages::WorkerState::Idle;
         counters.clear();
+        self.task_gauge.store(0, Ordering::Release);
+        self.task_queue.store(0, Ordering::Release);
+        self.task_max.store(0, Ordering::Release);
     }
 
     pub fn record_task_max(&mut self, max: u32) {
@@ -137,19 +146,24 @@ impl Stats {
         self.task_queue.store(current, Ordering::Release);
     }
 
-    pub fn record(&mut self, status: u16, elapsed_ms: u64) {
+    pub fn record(&mut self, status: Option<u16>, elapsed_ms: u64) {
         let counters = self.counters.clone();
         counters.inc_count();
-        if status >= 500 {
-            counters.inc_5xx();
-        } else if status >= 400 {
-            counters.inc_4xx();
-        } else if status >= 300 {
-            counters.inc_3xx();
-        } else if status >= 200 {
-            counters.inc_2xx();
-        } else if status >= 100 {
-            counters.inc_1xx();
+        match status {
+            Some(status) => {
+                if status >= 500 {
+                    counters.inc_5xx();
+                } else if status >= 400 {
+                    counters.inc_4xx();
+                } else if status >= 300 {
+                    counters.inc_3xx();
+                } else if status >= 200 {
+                    counters.inc_2xx();
+                } else if status >= 100 {
+                    counters.inc_1xx();
+                }
+            }
+            None => counters.inc_fail(),
         }
         let mut histo = self.histo.write().unwrap();
         histo.record(elapsed_ms).unwrap();
@@ -186,6 +200,7 @@ impl Stats {
             count_3xx: counters.count_3xx.load(Ordering::Acquire),
             count_4xx: counters.count_4xx.load(Ordering::Acquire),
             count_5xx: counters.count_5xx.load(Ordering::Acquire),
+            count_fail: counters.count_fail.load(Ordering::Acquire),
         }
     }
 }
@@ -227,6 +242,7 @@ pub struct Snapshot {
     pub count_3xx: u32,
     pub count_4xx: u32,
     pub count_5xx: u32,
+    pub count_fail: u32,
 }
 
 impl From<messages::Status> for Snapshot {
@@ -250,6 +266,7 @@ impl From<messages::Status> for Snapshot {
             count_3xx: s.count_3xx,
             count_4xx: s.count_4xx,
             count_5xx: s.count_5xx,
+            count_fail: s.count_fail,
         }
     }
 }

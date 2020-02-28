@@ -253,7 +253,7 @@ async fn task_scheduler(
                     .map(|u| u.parse().map_err(Error::from))
                     .unwrap_or_else(|| Err(Error::msg("Couldn't choose url".to_string())))?;
                 let t1 = worker_task(semaphore.clone(), https.clone(), url.clone(), stats, id);
-                id += 1;
+                id = id.wrapping_add(1);
                 future_list.push(t1);
             },
             res = future_list.select_next_some() => {
@@ -272,21 +272,22 @@ async fn worker_task(
     url: Uri,
     mut stats: Stats,
     id: u64,
-) -> Result<u64> {
+) -> u64 {
     let client: Client<_, hyper::Body> = Client::builder().build(connector);
     let started = Instant::now();
     let res = client
         .get(url)
         .await
-        .map_err(|e| Error::msg(format!("{}", e)))?;
-    let s = res.status().as_u16();
+        .map_err(|e| Error::msg(format!("{}", e)))
+        .ok();
     let elapsed = started.elapsed();
+    semaphore.release(1);
+    let s = res.map(|r| r.status().as_u16());
     stats.record(
         s,
         elapsed.as_millis().try_into().unwrap_or(u64::max_value()),
     );
-    semaphore.release(1);
-    Ok(id)
+    id
 }
 
 async fn stats_executor(logger: Logger, stats: Stats, tx: watch::Sender<messages::Status>) {

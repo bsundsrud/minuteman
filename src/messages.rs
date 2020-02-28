@@ -71,6 +71,7 @@ pub struct Status {
     pub count_3xx: u32,
     pub count_4xx: u32,
     pub count_5xx: u32,
+    pub count_fail: u32,
 }
 
 impl Status {
