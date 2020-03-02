@@ -252,7 +252,7 @@ async fn task_scheduler(
                 let url: Uri = chooser.choose(strategy, &urls)
                     .map(|u| u.parse().map_err(Error::from))
                     .unwrap_or_else(|| Err(Error::msg("Couldn't choose url".to_string())))?;
-                let t1 = worker_task(semaphore.clone(), https.clone(), url.clone(), stats, id);
+                let t1 = worker_task(logger.new(o!("worker" => id)), semaphore.clone(), https.clone(), url.clone(), stats, id);
                 id = id.wrapping_add(1);
                 future_list.push(t1);
             },
@@ -267,6 +267,7 @@ async fn task_scheduler(
 }
 
 async fn worker_task(
+    logger: Logger,
     semaphore: Arc<Semaphore>,
     connector: ClientConnector,
     url: Uri,
@@ -275,11 +276,14 @@ async fn worker_task(
 ) -> u64 {
     let client: Client<_, hyper::Body> = Client::builder().build(connector);
     let started = Instant::now();
-    let res = client
-        .get(url)
-        .await
-        .map_err(|e| Error::msg(format!("{}", e)))
-        .ok();
+    let res = client.get(url).await;
+    let res = match res {
+        Ok(r) => Some(r),
+        Err(e) => {
+            error!(logger, "{}", e);
+            None
+        }
+    };
     let elapsed = started.elapsed();
     semaphore.release(1);
     let s = res.map(|r| r.status().as_u16());
