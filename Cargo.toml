@@ -1,6 +1,6 @@
 [package]
 name = "minuteman"
-version = "0.1.6"
+version = "0.1.7"
 authors = ["Benn Sundsrud <benn.sundsrud@gmail.com>"]
 edition = "2018"
 
