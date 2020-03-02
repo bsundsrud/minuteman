@@ -19,18 +19,32 @@ const Controls = {
                        value={ControlsApi.concurrency}/>
                     </div>
                     <div className="actions">
-                        <input type="button" className="btn"
-                               onclick={(e) => ControlsApi.start()}
-                               value="Start"
-                        />
-                        <input type="button" className="btn"
-                               onclick={(e) => ControlsApi.stop()}
-                               value="Stop"
-                        />
-                        <input type="button" className="btn"
-                               onclick={(e) => ControlsApi.reset()}
-                               value="Reset"
-                        />
+                        <ul className="action-list">
+                            <li>
+                                <a className="btn launch"
+                                   onclick={(e) => ControlsApi.start()}>
+                                    Start
+                                </a>
+                            </li>
+                            <li>
+                                <a className="btn stop"
+                                   onclick={(e) => ControlsApi.stop()}>
+                                    Stop
+                                </a>
+                            </li>
+                            <li>
+                                <a className="btn reset"
+                                   onclick={(e) => ControlsApi.reset()}>
+                                    Reset
+                                </a>
+                            </li>
+                            <li>
+                                <a className="btn clear"
+                                   onclick={(e) => ControlsApi.clear_disconnected()}>
+                                    Clear
+                                </a>
+                            </li>
+                        </ul>
                     </div>
                 </div>);
     }

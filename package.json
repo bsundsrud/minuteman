@@ -5,7 +5,8 @@
   "main": "webapp/index.ts",
   "scripts": {
     "build:dev": "webpack --progress --config webpack.dev.js",
-    "build:prod": "webpack --progress --config webpack.prod.js"
+    "build:prod": "webpack --progress --config webpack.prod.js",
+    "build:watch": "webpack --progress --config webpack.dev.js --watch"
   },
   "repository": {
     "type": "git",

@@ -49,6 +49,12 @@ const ControlsApi = {
             url: "/workers/reset"
         });
     },
+    clear_disconnected: () => {
+        m.request({
+            method: "POST",
+            url: "/workers/prune"
+        });
+    },
 };
 
 export {

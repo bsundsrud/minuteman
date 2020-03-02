@@ -306,6 +306,10 @@ impl Status {
         self.state = WorkerState::Disconnected;
         self.disconnect_time = Some(SystemTime::now());
     }
+
+    pub fn is_disconnected(&self) -> bool {
+        self.state == WorkerState::Disconnected
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -342,6 +346,12 @@ impl StatsCollector {
             )));
         }
         Ok(())
+    }
+
+    pub fn prune_disconnected(&self) {
+        let rc = self.stats.clone();
+        let mut map = rc.write().unwrap();
+        map.retain(|_, v| !v.is_disconnected());
     }
 
     pub fn disconnect(&self, id: u32) {

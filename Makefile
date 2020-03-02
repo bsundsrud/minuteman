@@ -28,6 +28,9 @@ webapp-dev:
 webapp-prod:
 	npm run "build:prod"
 
+build-watch:
+	npm run "build:watch"
+
 build-dev: webapp-dev
 	cargo build $(CARGO_ARGS)
 

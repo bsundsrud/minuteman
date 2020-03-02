@@ -200,6 +200,12 @@ async fn start_workers(state: State, cmd: StartCommandRequest) -> Result<impl Re
     Ok(warp::reply::json(&resp_body))
 }
 
+async fn clear_disconnected(state: State) -> Result<impl Reply, Infallible> {
+    info!(state.logger, "Pruning disconnected workers");
+    state.stats.prune_disconnected();
+    Ok(warp::reply::with_status("", StatusCode::NO_CONTENT))
+}
+
 async fn index() -> Result<impl Reply, Rejection> {
     static_file("/static/index.html".to_string()).await
 }
@@ -250,15 +256,19 @@ pub async fn webserver_task(
 
     let reset = warp::path("reset")
         .and(warp::post())
-        .and(with_state(state))
+        .and(with_state(state.clone()))
         .and_then(reset_workers);
+    let clear_disconnected = warp::path("prune")
+        .and(warp::post())
+        .and(with_state(state.clone()))
+        .and_then(clear_disconnected);
     let index_page = warp::path::end().and(warp::get()).and_then(index);
     let static_file = warp::path!("static" / String)
         .and(warp::get())
         .map(|p: String| "/static/".to_string() + &p)
         .and_then(static_file);
 
-    let workers = warp::path("workers").and(start.or(stop).or(reset));
+    let workers = warp::path("workers").and(start.or(stop).or(reset).or(clear_disconnected));
     let routes = warp::any().and(index_page.or(stats).or(workers).or(static_file));
     info!(logger, "Starting webserver at {}", addr);
     let addr: SocketAddr = addr.parse().unwrap();
