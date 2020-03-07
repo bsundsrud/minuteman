@@ -1,7 +1,7 @@
-use anyhow::{Error, Result};
+use anyhow::Result;
 use async_tungstenite::tokio::connect_async;
 use futures::{pin_mut, select, sink::SinkExt, stream, StreamExt, TryStreamExt};
-use hyper::{self, Client, Uri};
+use hyper::{self, Client};
 use hyper_rustls::HttpsConnector;
 use rand::{self, seq::SliceRandom};
 use serde_json;
@@ -147,7 +147,7 @@ async fn command_executor(
         info!(logger, "Received command {:?}", cmd);
         match cmd {
             messages::Command::Start {
-                urls,
+                requests,
                 strategy,
                 max_concurrency,
             } => {
@@ -159,7 +159,7 @@ async fn command_executor(
                 }
                 let h = tokio::spawn(task_scheduler(
                     logger.new(o!("task" => "scheduler")),
-                    urls,
+                    requests,
                     stats.clone(),
                     strategy,
                     max_concurrency,
@@ -189,48 +189,18 @@ async fn command_executor(
     Ok(())
 }
 
-struct StrategyChooser {
-    idx: usize,
-}
-
-impl StrategyChooser {
-    fn new() -> StrategyChooser {
-        StrategyChooser { idx: 0 }
-    }
-
-    fn choose<'a, T>(
-        &mut self,
-        strategy: messages::AttackStrategy,
-        options: &'a [T],
-    ) -> Option<&'a T> {
-        match strategy {
-            messages::AttackStrategy::Random => options.choose(&mut rand::thread_rng()),
-            messages::AttackStrategy::InOrder => {
-                if options.is_empty() {
-                    return None;
-                }
-                if self.idx >= options.len() {
-                    self.idx = 0;
-                }
-                options.get(self.idx)
-            }
-        }
-    }
-}
-
 async fn task_scheduler(
     logger: Logger,
-    urls: Vec<String>,
+    requests: Vec<messages::RequestSpec>,
     mut stats: Stats,
     strategy: messages::AttackStrategy,
     max_concurrency: u32,
     shutdown: Arc<Mutex<oneshot::Receiver<()>>>,
 ) -> Result<()> {
-    if urls.is_empty() {
+    if requests.is_empty() {
         return Ok(());
     }
     debug!(logger, "Task Scheduler starting");
-    let mut chooser = StrategyChooser::new();
     let mut id: u64 = 0;
     let max_batches: u32 = u32::max(max_concurrency, 1);
     let semaphore = Arc::new(Semaphore::new(false, max_batches as usize));
@@ -249,10 +219,7 @@ async fn task_scheduler(
         select! {
             mut s = semaphore.acquire(1) => {
                 s.disarm();
-                let url: Uri = chooser.choose(strategy, &urls)
-                    .map(|u| u.parse().map_err(Error::from))
-                    .unwrap_or_else(|| Err(Error::msg("Couldn't choose url".to_string())))?;
-                let t1 = worker_task(logger.new(o!("worker" => id)), semaphore.clone(), https.clone(), url.clone(), stats, id);
+                let t1 = worker_task(logger.new(o!("worker" => id)), semaphore.clone(), https.clone(), &requests, strategy, stats, id);
                 id = id.wrapping_add(1);
                 future_list.push(t1);
             },
@@ -266,31 +233,90 @@ async fn task_scheduler(
     Ok(())
 }
 
+async fn execute_one_request(
+    client: &Client<ClientConnector, hyper::Body>,
+    request: &messages::RequestSpec,
+) -> Result<u16> {
+    let mut req = hyper::Request::builder()
+        .uri(request.url.to_string())
+        .version(request.version.into())
+        .method::<hyper::Method>(request.method.into());
+
+    for (k, v) in request.headers.iter() {
+        req = req.header(k, v);
+    }
+
+    let r = if let Some(ref b) = request.body {
+        req.body(hyper::Body::from(b.to_string())).unwrap()
+    } else {
+        req.body(hyper::Body::empty()).unwrap()
+    };
+    let res = client.request(r).await?;
+    Ok(res.status().as_u16())
+}
+
 async fn worker_task(
     logger: Logger,
     semaphore: Arc<Semaphore>,
     connector: ClientConnector,
-    url: Uri,
+    requests: &[messages::RequestSpec],
+    strategy: messages::AttackStrategy,
     mut stats: Stats,
     id: u64,
 ) -> u64 {
-    let client: Client<_, hyper::Body> = Client::builder().build(connector);
-    let started = Instant::now();
-    let res = client.get(url).await;
-    let res = match res {
-        Ok(r) => Some(r),
-        Err(e) => {
-            error!(logger, "{}", e);
-            None
+    let http1_client: Client<_, hyper::Body> = Client::builder().build(connector.clone());
+    let http2_client: Client<_, hyper::Body> = Client::builder().http2_only(true).build(connector);
+    match strategy {
+        messages::AttackStrategy::Random => {
+            let req = if let Some(r) = requests.choose(&mut rand::thread_rng()) {
+                r
+            } else {
+                error!(logger, "Failed to randomly choose request");
+                return id;
+            };
+            let client = if req.version == messages::HttpVersion::Http2 {
+                &http2_client
+            } else {
+                &http1_client
+            };
+            let started = Instant::now();
+            let status = match execute_one_request(&client, &req).await {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    error!(logger, "{}", e);
+                    None
+                }
+            };
+            let elapsed = started.elapsed();
+            stats.record(
+                status,
+                elapsed.as_millis().try_into().unwrap_or(u64::max_value()),
+            );
         }
-    };
-    let elapsed = started.elapsed();
+        messages::AttackStrategy::InOrder => {
+            for req in requests {
+                let client = if req.version == messages::HttpVersion::Http2 {
+                    &http2_client
+                } else {
+                    &http1_client
+                };
+                let started = Instant::now();
+                let status = match execute_one_request(&client, &req).await {
+                    Ok(s) => Some(s),
+                    Err(e) => {
+                        error!(logger, "{}", e);
+                        None
+                    }
+                };
+                let elapsed = started.elapsed();
+                stats.record(
+                    status,
+                    elapsed.as_millis().try_into().unwrap_or(u64::max_value()),
+                );
+            }
+        }
+    }
     semaphore.release(1);
-    let s = res.map(|r| r.status().as_u16());
-    stats.record(
-        s,
-        elapsed.as_millis().try_into().unwrap_or(u64::max_value()),
-    );
     id
 }
 

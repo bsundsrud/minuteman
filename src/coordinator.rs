@@ -1,18 +1,14 @@
 use crate::{messages, stats::StatsCollector, webserver};
 use anyhow::Result;
 use async_tungstenite::{self, tokio::TokioAdapter};
-use slog::{debug, info, o, warn, Logger};
-use std::{net::SocketAddr, time::Duration};
-use tungstenite::protocol::Message;
-
-use serde_json;
-
 use futures::{
     pin_mut,
     sink::SinkExt,
     stream::{self, StreamExt, TryStreamExt},
 };
-
+use serde_json;
+use slog::{debug, info, o, warn, Logger};
+use std::{net::SocketAddr, time::Duration};
 use tokio::{
     self,
     net::{TcpListener, TcpStream},
@@ -20,6 +16,7 @@ use tokio::{
     sync::{mpsc, oneshot, watch},
     time,
 };
+use tungstenite::protocol::Message;
 
 #[derive(Clone, Debug)]
 struct State {

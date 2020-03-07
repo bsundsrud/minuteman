@@ -18,17 +18,25 @@ const StatsApi = {
 };
 
 const ControlsApi = {
-    url: "",
+    specs: [],
+    strategy: "Random",
     concurrency: 100,
-    setUrl: (url) => {
-        ControlsApi.url = url;
+    addSpec: (spec) => {
+        ControlsApi.specs.push(spec);
+    },
+    deleteSpec: (index) => {
+        ControlsApi.specs.splice(index, 1);
+    },
+    setStrategy: (strategy) => {
+        ControlsApi.strategy = strategy;
     },
     setConcurrency: (concurrency) => {
         ControlsApi.concurrency = parseInt(concurrency, 10);
     },
     start: () => {
         let req = {
-            urls: [ControlsApi.url],
+            requests: ControlsApi.specs,
+            strategy: ControlsApi.strategy,
             max_concurrency: ControlsApi.concurrency,
         };
         m.request({
@@ -47,12 +55,6 @@ const ControlsApi = {
         m.request({
             method: "POST",
             url: "/workers/reset"
-        });
-    },
-    clear_disconnected: () => {
-        m.request({
-            method: "POST",
-            url: "/workers/prune"
         });
     },
 };

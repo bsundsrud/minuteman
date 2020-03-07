@@ -13,7 +13,7 @@ use tokio::sync::{watch, Mutex};
 use anyhow::Result as TaskResult;
 
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone)]
 struct State {
@@ -139,8 +139,29 @@ struct AllStatsResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct NewRequestSpec {
+    version: Option<messages::HttpVersion>,
+    method: messages::RequestMethod,
+    url: String,
+    body: Option<String>,
+    headers: Option<HashMap<String, String>>,
+}
+
+impl From<NewRequestSpec> for messages::RequestSpec {
+    fn from(r: NewRequestSpec) -> Self {
+        messages::RequestSpec {
+            version: r.version.unwrap_or(messages::HttpVersion::Http11),
+            method: r.method,
+            url: r.url,
+            body: r.body,
+            headers: r.headers.unwrap_or_else(HashMap::new),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct StartCommandRequest {
-    urls: Vec<String>,
+    requests: Vec<NewRequestSpec>,
     strategy: Option<messages::AttackStrategy>,
     max_concurrency: Option<u32>,
 }
@@ -148,7 +169,10 @@ struct StartCommandRequest {
 impl Into<messages::Command> for StartCommandRequest {
     fn into(self) -> messages::Command {
         messages::Command::start(
-            self.urls,
+            self.requests
+                .into_iter()
+                .map(messages::RequestSpec::from)
+                .collect(),
             self.strategy.unwrap_or(messages::AttackStrategy::Random),
             self.max_concurrency.unwrap_or(50),
         )
@@ -181,6 +205,7 @@ async fn stop_workers(state: State) -> Result<impl Reply, Infallible> {
 
 async fn reset_workers(state: State) -> Result<impl Reply, Infallible> {
     info!(state.logger, "Resetting workers");
+    state.stats.prune_disconnected();
     let _ = state
         .command_tx
         .clone()

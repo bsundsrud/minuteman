@@ -101,6 +101,8 @@ function makeSummaryRow(stats) {
         rate_4xx: 0,
         count_5xx: 0,
         rate_5xx: 0,
+        count_fail: 0,
+        rate_fail: 0,
     };
     let reducer = (acc, s) => {
         if (!s) {
@@ -173,49 +175,56 @@ function makeSummaryRow(stats) {
             </tr>);
 }
 
-const WorkerTable = {
-    oninit: (vnode) => {
-        StatsApi.fetch();
-        let interval = setInterval(StatsApi.fetch, 2000);
-        vnode.state.interval = interval;
-    },
-    view:() => {
-        return (<table className="worker-table">
-                    <thead>
-                        <tr>
-                            <th colspan="4"></th>
-                            <th colspan="6">Response Times (ms)</th>
-                            <th colspan="7">Request Counts</th>
-                        </tr>
-                        <tr className="header-row">
-                            <th>ID</th>
-                            <th>Host</th>
-                            <th>State</th>
-                            <th>Elapsed</th>
-                            <th>Min</th>
-                            <th>Mean</th>
-                            <th>Stdev</th>
-                            <th>Median</th>
-                            <th>p90</th>
-                            <th>Max</th>
-                            <th>Requests</th>
-                            <th>1xx</th>
-                            <th className="bg-green">2xx</th>
-                            <th>3xx</th>
-                            <th className="bg-yellow">4xx</th>
-                            <th className="bg-red">5xx</th>
-                            <th className="bg-red">Fail</th>
-                            <th>Available/Queue Depth/Max</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        { StatsApi.data.map(makeWorkerRow) }
-                    </tbody>
-                    <tfoot>
-                        { makeSummaryRow(StatsApi.data) }
-                    </tfoot>
-                </table>);
-    }
-};
+function WorkerTable(initial) {
+    var interval = undefined;
+    return {
+        oninit: (vnode) => {
+            StatsApi.fetch();
+            interval = setInterval(StatsApi.fetch, 2000);
+        },
+        onremove: (vnode) => {
+            if (interval) {
+                clearInterval(interval);
+            }
+        },
+        view:() => {
+            return (<table className="worker-table">
+                        <thead>
+                            <tr>
+                                <th colspan="4"></th>
+                                <th colspan="6">Response Times (ms)</th>
+                                <th colspan="7">Request Counts</th>
+                            </tr>
+                            <tr className="header-row">
+                                <th>ID</th>
+                                <th>Host</th>
+                                <th>State</th>
+                                <th>Elapsed</th>
+                                <th>Min</th>
+                                <th>Mean</th>
+                                <th>Stdev</th>
+                                <th>Median</th>
+                                <th>p90</th>
+                                <th>Max</th>
+                                <th>Requests</th>
+                                <th>1xx</th>
+                                <th className="bg-green">2xx</th>
+                                <th>3xx</th>
+                                <th className="bg-yellow">4xx</th>
+                                <th className="bg-red">5xx</th>
+                                <th className="bg-red">Fail</th>
+                                <th>Available/Queue Depth/Max</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            { StatsApi.data.map(makeWorkerRow) }
+                        </tbody>
+                        <tfoot>
+                            { makeSummaryRow(StatsApi.data) }
+                        </tfoot>
+                    </table>);
+        }
+    };
+}
 
 export default WorkerTable;

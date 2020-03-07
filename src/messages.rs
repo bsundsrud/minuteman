@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 use tungstenite::protocol::Message;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -10,11 +10,68 @@ pub enum AttackStrategy {
     InOrder,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum RequestMethod {
+    GET,
+    POST,
+    PUT,
+    DELETE,
+    HEAD,
+    OPTIONS,
+    CONNECT,
+    PATCH,
+    TRACE,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HttpVersion {
+    Http11,
+    Http2,
+}
+
+impl From<HttpVersion> for hyper::Version {
+    fn from(r: HttpVersion) -> hyper::Version {
+        use hyper::Version;
+        use HttpVersion::*;
+        match r {
+            Http11 => Version::HTTP_11,
+            Http2 => Version::HTTP_2,
+        }
+    }
+}
+
+impl From<RequestMethod> for hyper::Method {
+    fn from(r: RequestMethod) -> hyper::Method {
+        use hyper::Method;
+        use RequestMethod::*;
+        match r {
+            GET => Method::GET,
+            POST => Method::POST,
+            PUT => Method::PUT,
+            DELETE => Method::DELETE,
+            HEAD => Method::HEAD,
+            OPTIONS => Method::OPTIONS,
+            CONNECT => Method::CONNECT,
+            PATCH => Method::PATCH,
+            TRACE => Method::TRACE,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestSpec {
+    pub version: HttpVersion,
+    pub method: RequestMethod,
+    pub url: String,
+    pub body: Option<String>,
+    pub headers: HashMap<String, String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Command {
     Stop,
     Start {
-        urls: Vec<String>,
+        requests: Vec<RequestSpec>,
         strategy: AttackStrategy,
         max_concurrency: u32,
     },
@@ -22,9 +79,13 @@ pub enum Command {
 }
 
 impl Command {
-    pub fn start(urls: Vec<String>, strategy: AttackStrategy, max_concurrency: u32) -> Command {
+    pub fn start(
+        requests: Vec<RequestSpec>,
+        strategy: AttackStrategy,
+        max_concurrency: u32,
+    ) -> Command {
         Command::Start {
-            urls,
+            requests,
             strategy,
             max_concurrency,
         }

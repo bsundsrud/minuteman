@@ -1,0 +1,98 @@
+.spec-entry .url-entry {
+    display: flex;
+    flex-direction: row;
+}
+
+.spec-entry .url-input {
+    margin-left: 0.2em;
+    margin-right: 0.2em;
+    width: 50em;
+    flex-grow: 1;
+}
+
+.spec-entry .method-select {
+    flex-grow: 0;
+}
+
+.spec-entry .version-select {
+    flex-grow: 0;
+}
+
+.header-entry .header-entry-header,
+.body-entry .body-entry-header {
+    margin-top: 0.2em;
+    margin-bottom: 0.2em;
+}
+
+.spec-entry .header-entry .header-entry-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.header-entry .header-entry-line {
+    display: flex;
+    flex-direction: row;
+}
+
+.header-entry .header-key-input {
+    flex-grow: 1;
+    margin-right: 0;
+}
+
+.header-entry .header-value-input {
+    flex-grow: 1;
+}
+
+.header-entry .header-entry-line-spacer {
+    margin-left: 0.1em;
+    margin-right: 0.2em;
+    flex-grow: 0;
+    font-size: 1.5em;
+}
+
+.header-entry .header-entry-add-btn {
+    flex-grow: 0;
+}
+
+.header-entry .header-entry-remove-btn {
+    flex-grow: 0;
+}
+
+.header-entry .header-entry-new {
+    flex-grow: 1;
+    display: flex;
+}
+
+.spec-entry .body-entry {
+    margin-top: 0.1em;
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.body-entry .body-entry-input {
+    flex-grow: 1;
+    height: 15em;
+}
+
+.spec-entry .entry-container {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    margin-right: 1em;
+}
+
+.spec-entry {
+    display: flex;
+    flex-direction: row;
+}
+
+.header-entry .header-entry-line {
+    margin-bottom: 0.5em;
+}
+
+.header-entry .header-entry-new {
+    border-top: 1px solid #666;
+    padding-top: 0.3em;
+    margin-top: 0.2em;
+}
