@@ -19,6 +19,8 @@ matrix:
     - rustup component add clippy || travis_terminate 1
     - rustup component add rustfmt || travis_terminate 1
     - make init check lint
+before_install:
+  - nvm install 10
 before_deploy: .ci/before_deploy.sh
 branches:
   only:
