@@ -20,9 +20,10 @@ module.exports = {
     },
     plugins: [
         new CleanWebpackPlugin(),
-        new CopyPlugin([
-            { from: "webapp/static", flatten: true },
-        ]),
+        new CopyPlugin({
+            patterns: [
+                { from: "webapp/static/*", to: "[name].[ext]" },
+            ]}),
         new HtmlWebpackPlugin({
             title: "Minuteman",
             template: 'webapp/index.html',
