@@ -63,6 +63,8 @@ function SpecListEntry(initial) {
                           : (<span className="spec-list-empty">None</span>) }
                         { spec.body ?
                           (<SpecListEntryBody body={ spec.body }/>): null }
+                    { spec.random_querystring ? <div className="spec-list-randomize">Random query string value in <strong>{ spec.random_querystring }</strong> key</div> : null }
+                    { spec.random_header ? <div className="spec-list-randomize">Random header value in <strong>{ spec.random_header }</strong> header</div> : null }
                     </div>
 
                 </div>

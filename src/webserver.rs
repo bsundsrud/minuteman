@@ -144,6 +144,8 @@ struct NewRequestSpec {
     url: String,
     body: Option<String>,
     headers: Option<HashMap<String, String>>,
+    random_querystring: Option<String>,
+    random_header: Option<String>,
 }
 
 impl From<NewRequestSpec> for messages::RequestSpec {
@@ -154,6 +156,8 @@ impl From<NewRequestSpec> for messages::RequestSpec {
             url: r.url,
             body: r.body,
             headers: r.headers.unwrap_or_else(HashMap::new),
+            random_querystring: r.random_querystring,
+            random_header: r.random_header,
         }
     }
 }

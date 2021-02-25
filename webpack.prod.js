@@ -3,5 +3,5 @@ const common = require('./webpack.common.js');
 
 module.exports = merge(common, {
     mode: 'production',
-    devtool: 'none',
+    devtool: 'hidden-source-map',
 });

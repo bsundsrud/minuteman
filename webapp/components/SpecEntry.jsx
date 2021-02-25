@@ -162,12 +162,65 @@ function bodyEntry(body, bodyChanged) {
     );
 }
 
+function randomizerTextEntry(description, value, onchange) {
+    return (
+        <div className="randomizer-entry-textbox">
+            <span className="randomizer-entry-label">{ description }</span>
+            <input type="text" value={ value } oninput={ onchange }/>
+        </div>
+    );
+}
+
+function RandomizerEntry(initial) {
+    var value = initial.attrs.value;
+    var checked = initial.attrs.checked;
+
+    function onChange(e, upstreamOnChange) {
+        value = e.target.value;
+        upstreamOnChange(checked, value);
+    }
+
+    function onCheck(e, upstreamOnChange) {
+        checked = e.target.checked;
+        if (!checked) {
+            value = null;
+        }
+        upstreamOnChange(checked, value);
+    }
+
+    return {
+        onupdate: function(vnode) {
+            if (!vnode.attrs.checked) {
+                value = null;
+            }
+        },
+        view: function(vnode) {
+            function boundChange(e) {
+                onChange(e, vnode.attrs.onchange);
+            }
+            return (
+        <section className="randomizer-entry">
+            <div className="randomizer-entry-line">
+                <input type="checkbox" checked={ vnode.attrs.checked } onchange={ (e) => onCheck(e, vnode.attrs.onchange) }/>
+                <span className="randomizer-entry-label">{ vnode.attrs.title }</span>
+                { vnode.attrs.checked ? randomizerTextEntry(vnode.attrs.keyDescription, value, boundChange) : null }
+            </div>
+        </section>
+            );
+        }
+    };
+}
+
 function SpecEntry(initial) {
     var method = 0;
     var url = "";
     var body = "";
     var headers = [];
     var version = 0;
+    var randomize_querystring_checked = false;
+    var randomize_querystring = null;
+    var randomize_header_checked = false;
+    var randomize_header = null;
 
     function methodChanged(e) {
         method = parseInt(e.target.value, 10);
@@ -189,6 +242,16 @@ function SpecEntry(initial) {
         body = e.target.value;
     }
 
+    function randomizeQuerystringChanged(checked, value) {
+        randomize_querystring_checked = checked;
+        randomize_querystring = value;
+    }
+
+    function randomizeHeaderChanged(checked, value) {
+        randomize_header_checked = checked;
+        randomize_header = value;
+    }
+
     function createSpec(callback) {
         return (e) => {
             if (url === "") {
@@ -203,6 +266,8 @@ function SpecEntry(initial) {
                     return acc;
                 }, {}),
                 body: possibleMethods[method].body ? body : null,
+                random_querystring: randomize_querystring,
+                random_header: randomize_header,
             };
             clear();
             callback(spec);
@@ -215,6 +280,10 @@ function SpecEntry(initial) {
         body = "";
         headers = [];
         version = 0;
+        randomize_header = null;
+        randomize_header_checked = false;
+        randomize_querystring = null;
+        randomize_querystring_checked = false;
     }
 
     return {
@@ -225,6 +294,16 @@ function SpecEntry(initial) {
                         { urlEntry(method, url, version, methodChanged, urlChanged, versionChanged) }
                         <HeaderEntry headers={headers} headersChanged={headersChanged} />
                         { possibleMethods[method].body ? bodyEntry(body, bodyChanged) : null }
+                        <RandomizerEntry
+                            title="Randomize query string?"
+                            keyDescription="Field Name:"
+                            checked={randomize_querystring_checked}
+                            onchange={randomizeQuerystringChanged} />
+                        <RandomizerEntry
+                            title="Randomize header value?"
+                            keyDescription="Header Name:"
+                            checked={randomize_header_checked}
+                            onchange={randomizeHeaderChanged} />
                     </div>
                     <a className="spec-list-btn spec-entry-add-btn" onclick={ createSpec(vnode.attrs.specCreated) }>Add Spec</a>
                 </section>

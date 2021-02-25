@@ -12,6 +12,7 @@ use std::{
 };
 use tokio_stream::wrappers::{ReceiverStream, WatchStream};
 use tungstenite::protocol::Message;
+use url::Url;
 
 use futures_intrusive::sync::Semaphore;
 use tokio::{
@@ -236,15 +237,32 @@ async fn execute_one_request(
     client: &Client<ClientConnector, hyper::Body>,
     request: &messages::RequestSpec,
 ) -> Result<u16> {
+    let url = if let Some(ref field) = request.random_querystring {
+        let uuid = uuid::Uuid::new_v4();
+        let mut url: Url = request.url.parse()?;
+        let query = if let Some(q) = url.query() {
+            format!("{}&{}={}", q, field, uuid)
+        } else {
+            format!("{}={}", field, uuid)
+        };
+        url.set_query(Some(&query));
+        url
+    } else {
+        request.url.parse::<Url>()?
+    };
+
     let mut req = hyper::Request::builder()
-        .uri(request.url.to_string())
+        .uri(url.to_string())
         .version(request.version.into())
         .method::<hyper::Method>(request.method.into());
 
     for (k, v) in request.headers.iter() {
         req = req.header(k, v);
     }
-
+    if let Some(ref header) = request.random_header {
+        let uuid = uuid::Uuid::new_v4();
+        req = req.header(header, uuid.to_string());
+    }
     let r = if let Some(ref b) = request.body {
         req.body(hyper::Body::from(b.to_string())).unwrap()
     } else {

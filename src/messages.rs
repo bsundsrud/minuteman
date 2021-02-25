@@ -65,6 +65,8 @@ pub struct RequestSpec {
     pub url: String,
     pub body: Option<String>,
     pub headers: HashMap<String, String>,
+    pub random_querystring: Option<String>,
+    pub random_header: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

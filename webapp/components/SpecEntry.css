@@ -96,3 +96,17 @@
     padding-top: 0.3em;
     margin-top: 0.2em;
 }
+
+.randomizer-entry-line {
+    margin-top: 0.2em;
+    margin-bottom: 0.1em;
+
+}
+
+.randomizer-entry-textbox {
+    margin-left: 0.8em;
+}
+
+.randomizer-entry-textbox > .randomizer-entry-label {
+    margin-right: 0.3em;
+}
