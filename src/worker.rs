@@ -4,13 +4,13 @@ use futures::{pin_mut, select, sink::SinkExt, stream, StreamExt, TryStreamExt};
 use hyper::{self, Client};
 use hyper_rustls::HttpsConnector;
 use rand::{self, seq::SliceRandom};
-use serde_json;
 use slog::{debug, error, info, o, warn, Logger};
 use std::{
     convert::TryInto,
     sync::Arc,
     time::{Duration, Instant},
 };
+use tokio_stream::wrappers::{ReceiverStream, WatchStream};
 use tungstenite::protocol::Message;
 
 use futures_intrusive::sync::Semaphore;
@@ -22,7 +22,6 @@ use tokio::{
 
 use crate::messages;
 use crate::stats::Stats;
-use hostname;
 
 type ClientConnector = HttpsConnector<hyper::client::HttpConnector>;
 
@@ -44,7 +43,7 @@ impl State {
 async fn handle_message(
     logger: Logger,
     msg: Message,
-    mut cmd: mpsc::Sender<messages::Command>,
+    cmd: mpsc::Sender<messages::Command>,
 ) -> Result<bool> {
     let mut exit = false;
     match msg {
@@ -87,11 +86,11 @@ async fn run(logger: Logger, addr: String, state: State) -> Result<()> {
     }
     let (ws_stream, _response) = res?;
     debug!(logger, "Successfully connected");
-    let (mut tx, rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(100);
     let (mut outgoing, incoming) = ws_stream.split();
     let handle_incoming = incoming.map_err(|e| e.into()).map(Action::Incoming);
-    let handle_outgoing = rx.map(Action::Outgoing);
-    let handle_stats = state.stats.map(Action::Stats);
+    let handle_outgoing = ReceiverStream::new(rx).map(Action::Outgoing);
+    let handle_stats = WatchStream::new(state.stats.clone()).map(Action::Stats);
     let s1 = stream::select(handle_stats, handle_incoming);
     let mut combined = stream::select(s1, handle_outgoing);
     loop {
@@ -206,7 +205,7 @@ async fn task_scheduler(
     let semaphore = Arc::new(Semaphore::new(false, max_batches as usize));
     stats.record_task_max(max_batches);
     info!(logger, "Max Batches: {}", max_batches);
-    let https = HttpsConnector::new();
+    let https = HttpsConnector::with_native_roots();
     let mut future_list = stream::FuturesUnordered::new();
     loop {
         if shutdown.lock().await.try_recv().is_ok() {
@@ -324,18 +323,16 @@ async fn stats_executor(logger: Logger, stats: Stats, tx: watch::Sender<messages
     debug!(logger, "Stats heartbeat starting");
     let timeout = time::interval(Duration::from_secs(5));
     pin_mut!(timeout);
-    while let Some(_) = timeout.next().await {
+    loop {
+        let _ = timeout.tick().await;
         let s = stats.as_message();
         debug!(logger, "Sending stats => {:?}", &s);
-        let _ = tx.broadcast(s);
+        let _ = tx.send(s);
     }
 }
 
 pub fn run_forever(logger: Logger, addr: String) -> Result<()> {
-    let mut rt = runtime::Builder::new()
-        .threaded_scheduler()
-        .enable_all()
-        .build()?;
+    let rt = runtime::Builder::new_multi_thread().enable_all().build()?;
     let res = rt.block_on(async {
         let (c_tx, c_rx) = mpsc::channel(100);
         let stats = Stats::new();

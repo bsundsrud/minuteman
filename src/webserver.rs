@@ -7,7 +7,6 @@ use std::{convert::Infallible, net::SocketAddr};
 use warp::{self, http::StatusCode, reply::Response, Filter, Rejection, Reply};
 
 use headers::{ContentType, HeaderMapExt};
-use mime_guess;
 use tokio::sync::{watch, Mutex};
 
 use anyhow::Result as TaskResult;
@@ -199,7 +198,7 @@ async fn stop_workers(state: State) -> Result<impl Reply, Infallible> {
         .clone()
         .lock()
         .await
-        .broadcast(messages::Command::stop());
+        .send(messages::Command::stop());
     Ok(warp::reply::with_status("", StatusCode::NO_CONTENT))
 }
 
@@ -211,7 +210,7 @@ async fn reset_workers(state: State) -> Result<impl Reply, Infallible> {
         .clone()
         .lock()
         .await
-        .broadcast(messages::Command::reset());
+        .send(messages::Command::reset());
     Ok(warp::reply::with_status("", StatusCode::NO_CONTENT))
 }
 
@@ -220,7 +219,7 @@ async fn start_workers(state: State, cmd: StartCommandRequest) -> Result<impl Re
     let c: messages::Command = cmd.into();
     let resp_body = CommandResponse { command: c.clone() };
 
-    let _ = state.command_tx.clone().lock().await.broadcast(c);
+    let _ = state.command_tx.clone().lock().await.send(c);
 
     Ok(warp::reply::json(&resp_body))
 }

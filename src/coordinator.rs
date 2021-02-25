@@ -6,7 +6,6 @@ use futures::{
     sink::SinkExt,
     stream::{self, StreamExt, TryStreamExt},
 };
-use serde_json;
 use slog::{debug, info, o, warn, Logger};
 use std::{net::SocketAddr, time::Duration};
 use tokio::{
@@ -16,6 +15,7 @@ use tokio::{
     sync::{mpsc, oneshot, watch},
     time,
 };
+use tokio_stream::wrappers::{ReceiverStream, WatchStream};
 use tungstenite::protocol::Message;
 
 #[derive(Clone, Debug)]
@@ -59,7 +59,7 @@ pub async fn heartbeat_task(
             return;
         }
         debug!(logger, "Sending heartbeat");
-        if let Err(e) = sender.broadcast(()) {
+        if let Err(e) = sender.send(()) {
             info!(logger, "Heartbeat channel error: {}", e);
             return;
         }
@@ -84,7 +84,7 @@ pub async fn start(
     ));
 
     let state = State::new(hb_rx, broadcast, stats, collector);
-    let mut listener = TcpListener::bind(&addr).await?;
+    let listener = TcpListener::bind(&addr).await?;
     info!(logger, "Listening on {}", &addr);
     loop {
         let (stream, addr) = listener.accept().await?;
@@ -100,7 +100,7 @@ pub async fn start(
 async fn handle_incoming_message(
     log: Logger,
     msg: Message,
-    mut stats: mpsc::Sender<(u32, messages::Status)>,
+    stats: mpsc::Sender<(u32, messages::Status)>,
     addr: &SocketAddr,
     id: u32,
 ) -> Result<bool> {
@@ -141,20 +141,22 @@ async fn handle_connection(
     addr: SocketAddr,
 ) -> Result<()> {
     debug!(logger, "Client connected");
-    let ws_stream = async_tungstenite::accept_async(TokioAdapter(raw_stream)).await?;
+    let ws_stream = async_tungstenite::accept_async(TokioAdapter::new(raw_stream)).await?;
     let id = state.collector.connect(addr);
     info!(logger, "WebSocket connection established");
-    let (mut tx, rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(100);
 
     let (mut outgoing, incoming) = ws_stream.split();
     let handle_incoming = incoming
         .map_err(|e| e.into())
         .map(CoordinatorResult::Incoming);
 
-    let handle_broadcast = state.broadcast.map(CoordinatorResult::Broadcast);
-    let handle_heartbeat = state.heartbeat.map(|_| CoordinatorResult::Heartbeat);
+    let handle_broadcast =
+        WatchStream::new(state.broadcast.clone()).map(CoordinatorResult::Broadcast);
+    let handle_heartbeat =
+        WatchStream::new(state.heartbeat.clone()).map(|_| CoordinatorResult::Heartbeat);
 
-    let responder = rx.map(CoordinatorResult::Outgoing);
+    let responder = ReceiverStream::new(rx).map(CoordinatorResult::Outgoing);
 
     let s1 = stream::select(handle_heartbeat, handle_broadcast);
     let s2 = stream::select(handle_incoming, responder);
@@ -217,10 +219,7 @@ async fn stats_collector_task(
 }
 
 pub fn run_forever(log: Logger, addr: String, web_addr: String) -> Result<()> {
-    let mut rt = runtime::Builder::new()
-        .threaded_scheduler()
-        .enable_all()
-        .build()?;
+    let rt = runtime::Builder::new_multi_thread().enable_all().build()?;
     let res = rt.block_on(async {
         let (_s_tx, s_rx) = oneshot::channel();
         let (b_tx, b_rx) = watch::channel(messages::Command::Stop);

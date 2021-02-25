@@ -1,8 +1,6 @@
 #![recursion_limit = "512"]
 use anyhow::Result;
 use slog::{debug, error, o, Drain, Logger};
-use slog_async;
-use slog_term;
 use std::env;
 
 mod coordinator;
